@@ -1,0 +1,3 @@
+#!/bin/bash
+
+exec pytest -x -n logical --dist loadfile

@@ -1,0 +1,73 @@
+[project]
+name = 'redzed'
+description = 'An asyncio-based library for building small automated systems'
+keywords = ['automation', 'finite-state machine']
+authors = [
+	{name = 'Vlado Potisk', email = 'redzed@poti.sk'}
+	]
+license = 'MIT'
+dynamic = ['version']
+readme = {file = 'README.md', content-type = 'text/markdown'}
+requires-python = '>=3.11'
+dependencies = []
+classifiers = [
+	'Development Status :: 3 - Alpha',
+	'Intended Audience :: Developers',
+	'Topic :: Software Development :: Libraries :: Python Modules',
+	'Programming Language :: Python :: 3',
+	]
+
+[project.urls]
+homepage = 'https://github.com/xitop/redzed'
+repository = 'https://github.com/xitop/redzed'
+documentation = 'https://redzed.readthedocs.io/en/latest/'
+
+[project.optional-dependencies]
+tests = ['pytest>=8.4.0', 'pytest-asyncio>=0.26.0', 'pytest-xdist']
+
+[build-system]
+requires = ['setuptools>=77.0.3', 'wheel']
+build-backend = 'setuptools.build_meta'
+
+[tool.setuptools]
+packages = ['redzed', 'redzed.blocklib', 'redzed.utils']
+
+[tool.setuptools.dynamic]
+version = {attr = 'redzed.__version__'}
+
+[tool.pylint]
+format.max-line-length = 96
+reports.output-format = 'colorized'
+'messages control'.disable = [
+	"broad-exception-caught",
+	"cyclic-import",
+	"duplicate-code",
+	"invalid-name",
+	"missing-function-docstring",
+	"too-few-public-methods",
+	"too-many-arguments",
+	"too-many-branches",
+	"too-many-instance-attributes",
+	"too-many-locals",
+	"too-many-positional-arguments",
+	"too-many-public-methods",
+	"too-many-return-statements",
+	"too-many-statements",
+	]
+'messages control'.enable = [
+	"useless-suppression",
+	]
+
+[tool.mypy]
+enable_error_code = ["ignore-without-code"]
+disable_error_code = ["import-untyped"]
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_test_loop_scope = "module"
+asyncio_default_fixture_loop_scope = "module"
+testpaths = ["tests"]
