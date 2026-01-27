@@ -194,12 +194,8 @@ class Formula(base_block.BlockOrFormula):
         self._evaluate_active = False
         return triggers
 
-def formula(name: str, *args, **kwargs) -> Callable[[_FUNC], _FUNC]:
+def formula(func: _FUNC) -> _FUNC:
     """@formula() creates a Formula block with the decorated function."""
-    if 'func' in kwargs:
-        # Argument func=... will be supplied by us
-        raise TypeError("@formula() got an unexpected keyword argument 'func='")
-    def decorator(func: _FUNC) -> _FUNC:
-        Formula(name, *args, func=func, **kwargs)
-        return func
-    return decorator
+    comment = '' if func.__doc__ is None else inspect.cleandoc(func.__doc__).partition('\n')[0]
+    Formula(func.__name__, func=func, comment=comment)
+    return func

@@ -21,6 +21,7 @@ Circuit API
 
   Clear the circuit data. The next :func:`get_circuit` call will
   return a new circuit. The circuit must not be running.
+  :func:`!reset_circuit` does not modify the :ref:`debug level <Debug levels>`.
 
 ----
 

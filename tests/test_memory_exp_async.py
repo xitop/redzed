@@ -10,7 +10,7 @@ import pytest
 
 import redzed
 
-from .utils import runtest, TimeLogger
+from .utils import runtest, TimeLogger, strip_ts
 
 pytestmark = pytest.mark.usefixtures("task_factories")
 
@@ -85,3 +85,27 @@ async def test_expired_persistent_state(circuit):
         (150, "exp")
     ]
     await ptest(circuit, 0.2, LOG)
+
+
+async def test_validator_persistence(circuit):
+    """save value must not be double-validated"""
+    def add100(n):
+        return n + 100
+
+    inp = redzed.MemoryExp(
+        "inp", duration=10, expired=99,
+        initial=[redzed.RestoreState(), redzed.InitValue(7)], validator=add100)
+    storage = {}
+    circuit.set_persistent_storage(storage)
+    await runtest(sleep=0)
+    assert inp.get() == 107
+
+    redzed.reset_circuit()
+    circuit = redzed.get_circuit()
+    circuit.set_persistent_storage(storage)
+
+    inp = redzed.MemoryExp(
+        "inp", duration=10, expired=0,
+        initial=[redzed.RestoreState(), redzed.InitValue(3)], validator=add100)
+    await runtest(sleep=0)
+    assert inp.get() == 107     # add100 not applied again

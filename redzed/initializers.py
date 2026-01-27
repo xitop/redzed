@@ -2,8 +2,8 @@
 Block initializers.
 - - - - - -
 Part of the redzed package.
-# Docs: https://redzed.readthedocs.io/en/latest/
-# Project home: https://github.com/xitop/redzed/
+Docs: https://redzed.readthedocs.io/en/latest/
+Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import typing as t
 
 from . import block
 from .undef import UNDEF, UndefType
-from .utils import check_async_func, time_period
+from .utils import time_period
 
 
 _LONG_TIMEOUT = 60      # threshold for a "long timeout" debug message
@@ -225,19 +225,18 @@ class InitTask(AsyncInitializer):
 
     def __init__(
             self,
-            coro_func: Callable[..., Awaitable[t.Any]],
+            aw_func: Callable[..., Awaitable[t.Any]],
             *args: t.Any,
             timeout: float|str = 10.0
             ) -> None:
         """Similar to InitFunction, but asynchonous."""
-        check_async_func(coro_func)
         super().__init__(timeout)
-        self._corofunc = coro_func
+        self._aw_func = aw_func
         self._args = args
 
     async def _async_get_init(self) -> t.Any:
         async with asyncio.timeout(self._timeout):
-            return await self._corofunc(*self._args)
+            return await self._aw_func(*self._args)
 
 
 class InitWait(AsyncInitializer):

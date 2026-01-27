@@ -2,8 +2,8 @@
 A single memory cell blocks for general use.
 - - - - - -
 Part of the redzed package.
-Docs: https://edzed.readthedocs.io/en/latest/
-Home: https://github.com/xitop/edzed/
+Docs: https://redzed.readthedocs.io/en/latest/
+Home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
@@ -17,39 +17,7 @@ import typing as t
 import redzed
 from redzed.utils import is_multiple, time_period
 from .fsm import FSM
-
-
-class _Validate(redzed.Block):
-    """
-    Add a value validator.
-    """
-
-    def __init__(
-            self, *args,
-            validator: Callable[[t.Any], t.Any]|None = None,
-            **kwargs) -> None:
-        self._validator = validator
-        super().__init__(*args, **kwargs)
-
-    def _validate(self, value: t.Any) -> t.Any:
-        """
-        Return the value processed by the validator.
-
-        Return UNDEF if the validator rejected the value by raising
-        an exception. Return the value unchanged if a validator was
-        not configured.
-        """
-        if self._validator is None or value is redzed.UNDEF:
-            return value
-        try:
-            validated = self._validator(value)
-        except Exception as err:
-            self.log_debug1(
-                "Validator rejected value %r with %s: %s", value, type(err).__name__, err)
-            return redzed.UNDEF
-        if validated != value:
-            self.log_debug2("Validator has rewritten %r -> %r", value, validated)
-        return validated
+from .validator import _Validate
 
 
 class Memory(_Validate, redzed.Block):
@@ -59,29 +27,28 @@ class Memory(_Validate, redzed.Block):
     Memory is typically used as an input block.
     """
 
-    def _store_value(self, value: t.Any) -> bool:
-        """
-        Validate and store a value.
-
-        Return True on success, False on validation error.
-        """
-        if (validated := self._validate(value)) is redzed.UNDEF:
-            return False
+    def _event_store(self, edata: redzed.EventData) -> bool:
+        """Validate and store a value."""
+        evalue = edata['evalue']
+        try:
+            validated = self._validate(evalue)
+        except Exception:
+            if edata.get('suppress', False):
+                return False
+            raise
         self._set_output(validated)
         return True
 
-    def _event_store(self, edata: redzed.EventData) -> bool:
-        evalue = edata['evalue']
-        return self._store_value(evalue)
-
     def rz_init(self, init_value: t.Any, /) -> None:
-        self._store_value(init_value)
+        validated = self._validate(init_value)
+        self._set_output(validated)
 
     def rz_export_state(self) -> t.Any:
         return self.get()
 
     def rz_restore_state(self, state: t.Any, /) -> None:
-        self._store_value(state)
+        # Do not validate. *state* is already validated and thus possibly preprocessed.
+        self._set_output(state)
 
 
 class MemoryExp(_Validate, FSM):
@@ -89,8 +56,7 @@ class MemoryExp(_Validate, FSM):
     Memory cell with an expiration time.
     """
 
-    ALL_STATES = ['expired', 'valid']
-    TIMED_STATES = [ ['valid', None, 'expired'], ]
+    STATES = ['expired', ['valid', None, 'expired']]
 
     def __init__(
             self, *args,
@@ -98,25 +64,33 @@ class MemoryExp(_Validate, FSM):
             expired: t.Any = None,
             **kwargs) -> None:  # kwargs may contain a validator
         super().__init__(*args, t_valid=duration, **kwargs)
-        self._expired = self._validate(expired)
-        if self._expired is redzed.UNDEF:
-            raise ValueError(
-                f"{self} The 'expired' argument {expired!r} was rejected by the validator")
+        try:
+            self._expired = self._validate(expired)
+        except Exception as err:
+            err.add_note(f"{self}: The validator rejected the 'expired' argument {expired!r}")
+            raise
 
-    def _event_store(self, edata: redzed.EventData) -> bool:
-        evalue = edata['evalue']
-        if (validated := self._validate(evalue)) is redzed.UNDEF:
-            return False
+    def _store(self, validated: t.Any) -> None:
         if validated == self._expired:
             self._goto('expired')
         else:
             self.sdata['memory'] = validated
             self._goto('valid')
+
+    def _event_store(self, edata: redzed.EventData) -> bool:
+        evalue = edata['evalue']
+        validated = self._validate(evalue)
+        try:
+            validated = self._validate(evalue)
+        except Exception:
+            if edata.get('suppress', False):
+                return False
+            raise
+        self._store(validated)
         return True
 
     def rz_init(self, init_value: t.Any, /) -> None:
-        if (validated := self._validate(init_value)) is redzed.UNDEF:
-            return
+        validated = self._validate(init_value)
         if validated == self._expired:
             super().rz_init('expired')
         else:
@@ -131,7 +105,7 @@ class MemoryExp(_Validate, FSM):
             self.sdata['memory'] if self.state == 'valid' else self._expired)
 
 
-class DataPoll(_Validate, redzed.Block):
+class DataPoll(redzed.Block):
     """
     A source of sampled or computed values.
     """
@@ -180,7 +154,7 @@ class DataPoll(_Validate, redzed.Block):
                 duration = time.monotonic() - start_ts
             else:
                 duration = 0
-            if (value := self._validate(value)) is redzed.UNDEF:
+            if value is redzed.UNDEF:
                 failures += 1
                 self.log_debug1("Data acquisition failure(s): %d", failures)
                 if 0 < self._abort_after_failures <= failures:
@@ -205,6 +179,4 @@ class DataPoll(_Validate, redzed.Block):
     def rz_export_state(self) -> t.Any:
         return self.get()
 
-    def rz_restore_state(self, state: t.Any, /) -> None:
-        if (value := self._validate(state)) is not redzed.UNDEF:
-            self._set_output(value)
+    rz_restore_state = rz_init

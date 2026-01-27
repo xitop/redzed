@@ -1,3 +1,3 @@
 #!/bin/bash
 
-exec pytest -x -n logical --dist loadfile
+exec pytest -x -n logical --dist loadfile --failed-first

@@ -63,6 +63,7 @@ The *name* must be unique. Such name could be generated if necessary:
 
   Create a component name that is not in use.
   The returned name consists of the given *prefix* and some generated suffix.
+  The *prefix* alone must be a valid name.
 
 The optional *comment* may be any arbitrary text.
 
@@ -131,7 +132,7 @@ There are two equivalent ways to define a trigger. The decorator is preferred fo
   A circuit component monitoring and acting upon output changes in referenced blocks
   or formulas.
 
-  A ``Trigger`` does not have a name nor an output and it is the only such circuit component.
+  A ``Trigger`` does not have a name nor an output. It's the only such circuit component type.
 
   Output changes in blocks and formulas referenced by the function *func* trigger
   a function call with current output values as function's arguments.
@@ -148,12 +149,13 @@ There are two equivalent ways to define a trigger. The decorator is preferred fo
 Formulas
 ========
 
-There are two equivalent ways to define a formula.
+There are two ways to define a formula.
 
-.. decorator:: formula(name: str, comment: str = "")
+.. decorator:: formula
 
-  Create a :class:`Formula` with the given :ref:`name and comment <Setting the name>`
-  and with the decorated function. The function itself is unchanged.
+  Create a :class:`Formula` with the name and comment taken from the decorated function.
+  The formula *name* will be the same as the function name. The *comment* will be taken from
+  the first docstring text line. The function itself is unchanged.
 
 .. class:: Formula(name: str, *, func: Callable, comment: str = "")
   :final:
@@ -196,8 +198,8 @@ There are two equivalent ways to define a formula.
     redzed.Memory("v1", comment="value #1", initial=False)
     redzed.Memory("v2", comment="value #2", initial=False)
 
-    @redzed.Formula("v1_v2")
-    def logical_and(v1, v2):
+    @redzed.formula
+    def v1_v2(v1, v2):
         return v1 and v2
 
     @redzed.triggered
@@ -219,19 +221,23 @@ Example::
   mem1 = redzed.Memory("inputA", initial=False)
   mem2 = redzed.Memory("inputB", initial=False)
 
-  @redzed.formula("logical_and")
-  def _and2(inputA, inputB):
+  @redzed.formula
+  def and2(inputA, inputB):
       return inputA and inputB
 
 The referenced blocks (here ``inputA`` and ``inputB``) can be created before
 or after the definition of the Formula or the Trigger referencing them.
 
+---
+
 If a block or formula needs to be referenced by a different name, use a default
 value for a parameter. The default can be either the block's name (string)
-or the block's object. The following example shows both cases:
+or the block's object. The example below shows both cases.
 
 .. caution::
-  The function definition may look confusing when this feature is used.
+  \(1) Avoid this feature if possible, because it makes function definitions
+  quite confusing. \(2) You might need to re-order the arguments, because Python
+  does not allow parameter without a default to follow parameter with a default.
 
 ::
 
@@ -239,6 +245,6 @@ or the block's object. The following example shows both cases:
   mem2 = redzed.Memory(redzed.unique_name(), initial=False)
 
   # "class" is a Python keyword
-  @redzed.formula("logical_and")
-  def _and2(x='class', y=mem2):
+  @redzed.formula
+  def and2(x='class', y=mem2):
       return x and y

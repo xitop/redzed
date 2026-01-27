@@ -16,7 +16,7 @@ requirements for such string are:
 - Both decimal point and decimal comma are supported.
 - Numbers do not have to be normalized, e.g. ``48H`` is fine (same as ``2D``).
 - Underscores in numbers (e.g. ``1_500``)
-  and scientific notation (e.g. ``1e3``) are not supported.
+  and the scientific notation (e.g. ``1e3``) are not supported.
 - One day is always 24 hours and one week always lasts 7*24 hours. Switching from or to
   daylight saving time (summer time) during that time is not taken into account.
 

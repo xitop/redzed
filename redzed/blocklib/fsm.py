@@ -1,7 +1,7 @@
 """
 Event driven finite-state machine (FSM) extended with optional timers.
-
 - - - - - -
+Part of the redzed package.
 Docs: https://redzed.readthedocs.io/en/latest/
 Home: https://github.com/xitop/redzed/
 """
@@ -43,7 +43,7 @@ def _hook_args(func: Callable[..., t.Any]) -> int:
     """Check if *func* takes 0 or 1 argument."""
     params = inspect.signature(func).parameters
     plen = len(params)
-    if plen > 1 or any(p.kind not in _ALLOWED_KINDS for p in params.values()):
+    if plen > 1 or plen == 1 and next(iter(params.values())).kind not in _ALLOWED_KINDS:
         raise TypeError(
             f"Function {func.__name__} is not usable as an FSM hook "
             + "(incompatible call signature)")
@@ -56,15 +56,15 @@ class FSM(redzed.Block):
     """
 
     # subclasses should define:
-    ALL_STATES: Sequence[str] = []
-    TIMED_STATES: Sequence[Sequence] = []
-        # each timed state: [state, duration, next_state]
+    STATES: Sequence[str|Sequence] = []
+        # each state: non-timed: state
+        #             or timed: [state, duration, next_state]
     EVENTS: Sequence[Sequence] = []
         # each item: [event, [state1, state2, ..., stateN], next_state]
         #        or: [event, ..., next_state] <- literal ellipsis
     # --- and redzed will translate that to: ---
     _ct_default_state: str
-        # the default initial state (first item of ALL_STATES)
+        # the default initial state (first item of STATES)
     _ct_duration: dict[str, float]
         # {timed_state: default_duration_in_seconds}
     _ct_events: set[str]
@@ -85,7 +85,7 @@ class FSM(redzed.Block):
     @classmethod
     def _check_state(cls, state: str) -> None:
         if state not in cls._ct_states:
-            raise ValueError(f"FSM state '{state}' is unknown (missing in ALL_STATES)")
+            raise ValueError(f"FSM state '{state}' is unknown (missing in STATES)")
 
     @classmethod
     def _add_transition(cls, event: str, state: str|None, next_state: str|None) -> None:
@@ -100,64 +100,93 @@ class FSM(redzed.Block):
     @classmethod
     def _build_tables(cls) -> None:
         """
-        Build control tables from ALL_STATES, TIMED_STATES and EVENTS.
+        Build control tables from STATES and EVENTS.
 
         Control tables must be created for each subclass. The original
         tables are left unchanged. All control tables are class
         variables and have the '_ct_' prefix.
         """
         # states
-        if not is_multiple(cls.ALL_STATES) or not cls.ALL_STATES:
-            raise ValueError("ALL_STATES: Expecting non-empty sequence of names")
-        for state in cls.ALL_STATES:
-            check_identifier(state, "FSM state name")
-        cls._ct_states = set(cls.ALL_STATES)
-        cls._ct_default_state = cls.ALL_STATES[0]
+        if not is_multiple(cls.STATES) or not cls.STATES:
+            raise ValueError("STATES: Expecting a non-empty sequence of states")
+        cls._ct_states = set()
+        timed_states: list[tuple[int, Sequence]] = []
+        for i, entry in enumerate(cls.STATES, start=1):
+            try:
+                if is_multiple(entry):
+                    if len(entry) != 3:
+                        raise ValueError(
+                            "Invalid timed state definition. "
+                            + "Expected are three values: state, duration, next_state")
+                    timed_states.append((i, entry))
+                    state = entry[0]
+                else:
+                    state = entry
+                check_identifier(state, "FSM state name")
+                if i == 1:
+                    cls._ct_default_state = state
+                elif state in cls._ct_states:
+                    raise ValueError(f"Duplicate definition for state '{state}'")
+                cls._ct_states.add(state)
+            except (ValueError, TypeError) as err:
+                err.add_note(f"Offending entry: STATES table, item {i}")
+                raise
+
         # timed states
         cls._ct_duration = {}
         cls._ct_timed_states = {}
-        for state, duration, next_state in cls.TIMED_STATES:
-            cls._check_state(state)
-            cls._check_state(next_state)
-            if state in cls._ct_timed_states:
-                raise ValueError(f"TIMED_STATES: Multiple rules for timed state '{state}'")
-            if duration is not None:
-                try:
-                    cls._ct_duration[state] = time_period(duration, zero_ok=True)
-                except (ValueError, TypeError) as err:
-                    raise ValueError(
-                        f"TIMED_STATES: could not convert duration of state '{state}' "
-                        + f"to seconds: {err}") from None
-            cls._ct_timed_states[state] = next_state
+        for i, (state, duration, next_state) in timed_states:
+            try:
+                # state was checked already, also for duplicates
+                cls._check_state(next_state)
+                if duration is not None:
+                    try:
+                        cls._ct_duration[state] = time_period(duration, zero_ok=True)
+                    except (ValueError, TypeError) as err:
+                        raise ValueError(
+                            f"Could not convert duration of state '{state}' to seconds: {err}"
+                            ) from None
+                cls._ct_timed_states[state] = next_state
+            except (ValueError, TypeError) as err:
+                err.add_note(f"Offending entry: STATES table, item {i}")
+                raise
+
 
         # events and state transitions
         cls._ct_transition = {}
         cls._ct_events = set()
-        for event, from_states, next_state in cls.EVENTS:
-            check_identifier(event, "FSM event name")
-            if event in cls._edt_handlers:
-                raise ValueError(
-                    f"Ambiguous event '{event}': "
-                    + "the name is used for both FSM and Block event")
-            cls._ct_events.add(event)
-            if next_state is not None:
-                cls._check_state(next_state)
-            if from_states is ...:
-                # The ellipsis means any state. In control tables we are using None instead
-                cls._add_transition(event, None, next_state)
-            else:
-                if not is_multiple(from_states):
-                    exc = ValueError(
-                        "Expected is a literal ellipsis (...) or a sequence of states, "
-                        + f"got {from_states!r}")
-                    exc.add_note(
-                        f"Problem was found in the transition rule for event '{event}'")
-                    if from_states in cls._ct_states:
-                        exc.add_note(f"Did you mean: ['{from_states}'] ?")
-                    raise exc
-                for fstate in from_states:
-                    cls._check_state(fstate)
-                    cls._add_transition(event, fstate, next_state)
+        for i, (event, from_states, next_state) in enumerate(cls.EVENTS, start=1):
+            try:
+                j = 1
+                check_identifier(event, "FSM event name")
+                if event in cls._edt_handlers:
+                    raise ValueError(
+                        f"Ambiguous event '{event}': "
+                        + "the name is used for both FSM and Block event")
+                cls._ct_events.add(event)
+                j = 2
+                if from_states is ...:
+                    # The ellipsis means any state. In control tables we are using None instead
+                    cls._add_transition(event, None, next_state)
+                else:
+                    if not is_multiple(from_states):
+                        if from_states in cls._ct_states:
+                            hint = f" Did you mean: ['{from_states}'] ?"
+                        else:
+                            hint = ""
+                        raise ValueError(
+                            "Expected is a literal ellipsis (...) or a sequence of states, "
+                            + f"got {from_states!r}{hint}")
+                    for fstate in from_states:
+                        cls._check_state(fstate)
+                        cls._add_transition(event, fstate, next_state)
+                j = 3
+                if next_state is not None:
+                    cls._check_state(next_state)
+            except (ValueError, TypeError) as err:
+                # pylint: disable-next=used-before-assignment
+                err.add_note(f"Offending entry: EVENTS table, item {i}, position: {j}/3")
+                raise
 
         # helper table: name 'prefix_suffix' is valid if prefix is a dict key
         # and suffix is listed in the corresponding dict value

@@ -18,7 +18,7 @@
 # -- Project information -----------------------------------------------------
 
 project = 'redzed'
-copyright = '2025, Vlado Potisk'
+copyright = '2025-2026, Vlado Potisk'
 author = 'Vlado Potisk'
 
 

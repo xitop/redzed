@@ -32,20 +32,3 @@ def test_is_multiple_and_to_tuple():
     for arg in MULTI_VALUES:
         assert is_multiple(arg)
         assert to_tuple(arg) == tuple(arg)
-
-
-def test_async_coro_types():
-    check_coro = redzed.utils.check_async_coro
-    check_func = redzed.utils.check_async_func
-    async def func():
-        pass
-    coro = func()
-
-    check_func(func)
-    with pytest.raises(TypeError):
-        check_coro(func)
-
-    check_coro(coro)
-    with pytest.raises(TypeError):
-        check_func(coro)
-    coro.close()

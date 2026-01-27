@@ -19,7 +19,7 @@ Outputs
 Sync outputs
 ============
 
-.. class:: OutputFunc(name, *, func,  stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
+.. class:: OutputFunc(name, *, func, validator=None, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
 
   Call the function *func* when an ``'put'`` event arrives.
   The output of an :class:`!OutputFunc` block is always :const:`None`.
@@ -27,6 +27,9 @@ Sync outputs
   :param Callable[[Any], Any] func:
     Function to be invoked on each ``'put'`` event with the event data item ``'evalue'``
     as its only argument.
+
+  :param validator: Optional :ref:`data validator <Output data validation>`.
+  :type validator: Callable[[Any], Any] | None
 
   :param Any stop_value:
     If *stop_value* is given, it is used as an argument of a synthetic
@@ -91,13 +94,27 @@ e.g. switching an electric circuit on or off.
 Use a :class:`MemoryBuffer` with an :class:`OutputController`.
 
 
+Output data validation
+----------------------
+
+Async output buffers can validate data using a validator.
+It is a function specified with the *validator* argument.
+It takes one argument, the data to be output. This includes a *stop_value* if it is defined.
+The validator either accepts the data by returning it or rejects it by raising
+an exception. The returned data may be modified (preprocessed).
+
+Unlike the input data validation, the output data originate inside the circuit,
+so their validation provides only an additional layer of protection.
+The main use-case here is the preprocessing.
+
+
 Worker mode
 -----------
 
-.. class:: QueueBuffer(name, *, maxsize=0, priority_queue=False, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
+.. class:: QueueBuffer(name, *, maxsize=0, priority_queue=False, validator=None, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
 
   Create a :abbr:`queue (FIFO = First In, First Out)` buffer
-  with an interface for an output block. The output
+  with an interface for an async output block. The output
   is unused and its value is always :const:`None`.
 
   :param int maxsize:
@@ -109,6 +126,9 @@ Worker mode
 
     Use a `priority queue [↗] <https://docs.python.org/3/library/asyncio-queue.html#asyncio.PriorityQueue>`_
     instead of a standard queue.
+
+  :param validator: Optional :ref:`data validator <Output data validation>`.
+  :type validator: Callable[[Any], Any] | None
 
   :param Any stop_value:
     If defined, the ``stop_value`` is inserted into the buffer during shutdown
@@ -137,15 +157,22 @@ Worker mode
       Return the number of items in the buffer.
 
 
-.. class:: OutputWorker(name, *, coro_func, buffer, workers=1, stop_timeout=..., **block_kwargs)
+.. class:: OutputWorker(name, *, aw_func, buffer, workers=1, stop_timeout=..., **block_kwargs)
 
-  Repeatedly fetch a value from a *buffer* and run an async function *coro_func* with that
+  Repeatedly fetch a value from a *buffer* and run an async function *aw_func* with that
   value until it terminates. Wait for a value when the buffer is empty.
 
   :param buffer: A data buffer; :class:`QueueBuffer` is required for proper functioning.
 
-  :param coro_func:
+  :param aw_func:
     An asynchronous function taking one argument, the value from the buffer.
+    More precisely, *aw_func* must be a callable returning an awaitable.
+    It will be used in a statement::
+
+      await aw_func(value)
+
+    Usually it is defined with ``async def aw_func(arg): ...``,
+    but other options exist.
 
     The function should be self-contained. It should handle errors, retries,
     timeouts, etc. If the function raises, the circuit shuts down.
@@ -157,7 +184,7 @@ Worker mode
     `asyncio.to_thread [↗] <https://docs.python.org/3/library/asyncio-task.html#asyncio.to_thread>`_.
     A tiny adapter is needed for usage with :class:`!OutputWorker`::
 
-      coro_func=lambda arg: asyncio.to_thread(blocking_function, arg)
+      aw_func=lambda arg: asyncio.to_thread(blocking_function, arg)
 
   :param int workers: Number of concurrent worker tasks.
 
@@ -171,11 +198,14 @@ Worker mode
 Controller mode
 ---------------
 
-.. class:: MemoryBuffer(name, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
+.. class:: MemoryBuffer(name, validator=None, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
 
   Create a buffer holding only the last value. The buffer has
-  an interface for an output block. The output is unused
+  an interface for an async output block. The output is unused
   and its value is always :const:`None`.
+
+  :param validator: Optional :ref:`data validator <Output data validation>`.
+  :type validator: Callable[[Any], Any] | None
 
   :param Any stop_value:
     If defined, the ``stop_value`` is inserted into the buffer during shutdown
@@ -199,9 +229,9 @@ Controller mode
       Return the number of items in the buffer which is either 0 or 1.
 
 
-.. class:: OutputController(name, *, coro_func, buffer, rest_time=0.0, stop_timeout=..., **block_kwargs)
+.. class:: OutputController(name, *, aw_func, buffer, rest_time=0.0, stop_timeout=..., **block_kwargs)
 
-  Repeatedly fetch a value from a *buffer* and run an async function *coro_func* with that
+  Repeatedly fetch a value from a *buffer* and run an async function *aw_func* with that
   value until it terminates OR until a new value is available from the buffer.
   Wait for a value when the buffer is empty.
 
@@ -209,10 +239,11 @@ Controller mode
     A data buffer; :class:`MemoryBuffer` is required for proper functioning.
     Only one :class:`!OutputController` should be connected to one :class:`!MemoryBuffer`.
 
-  :param coro_func:
+  :param aw_func:
 
     An asynchronous function taking one argument, the value from the buffer.
-    The task running *coro_func* will be cancelled (and awaited) when a new value
+    In exact terms is *aw_func* a callable returning an awaitable.
+    The task awaiting *aw_func(value)* will be cancelled (and awaited) when a new value
     arrives to the buffer. Any threading related operations should be avoided,
     because cancelling a thread is quite problematic.
 
@@ -220,7 +251,7 @@ Controller mode
     timeouts, etc. If the function raises, the circuit shuts down.
 
   :param rest_time:
-    *rest_time* is the duration of an idle sleep after each *coro_func*
+    *rest_time* is the duration of an idle sleep after each *aw_func*
     invocation, even after a failure, timeout or cancellation. It can represent
     a settling time or serve as a limit for the frequency of actions.
     The rest time sleep is shielded from cancellation. Keep it short.

@@ -35,7 +35,7 @@ async def output_worker(
     logger = TimeLogger('logger', mstop=True)
     inp = redzed.Memory('inp', initial='i1')
     buff = redzed.QueueBuffer('buff', triggered_by='inp', stop_value=stop_value)
-    redzed.OutputWorker('out', coro_func=wait70, buffer=buff, **kwargs)
+    redzed.OutputWorker('out', aw_func=wait70, buffer=buff, **kwargs)
 
     async def tester():
         """
@@ -147,16 +147,15 @@ async def test_threads(circuit):
         time.sleep(0.04)
         logger.log(100*a + 10*b + c)
 
-    # Python 3.12+
-    # @inspect.markcoroutinefunction
+    # Python 3.12+ @inspect.markcoroutinefunction
     def adapter(v):
         return asyncio.to_thread(blocking, **v)
 
     logger = TimeLogger('log')
     buff1 = redzed.QueueBuffer("buff1")
     buff2 = redzed.QueueBuffer("buff2")
-    redzed.OutputWorker("out1", coro_func=adapter, buffer=buff1)
-    redzed.OutputWorker("out2", coro_func=adapter, buffer=buff2)
+    redzed.OutputWorker("out1", aw_func=adapter, buffer=buff1)
+    redzed.OutputWorker("out2", aw_func=adapter, buffer=buff2)
 
     async def tester():
         # pylint: disable=use-dict-literal
@@ -169,3 +168,29 @@ async def test_threads(circuit):
     await runtest(tester())
     LOG = [(40, 123), (60, 120), (80, 789), (100, 780)]
     logger.compare(LOG)
+
+
+async def test_validator(circuit):
+    """Test the data validator."""
+    log = []
+
+    async def asynclog(value):
+        log.append(value)
+
+    def odd100(value):
+        if value % 2:
+            return value+100
+        raise ValueError("No even numbers")
+
+    buff = redzed.QueueBuffer("buff", validator=odd100, stop_value = 55)
+    redzed.OutputWorker("out", aw_func=asynclog, buffer=buff)
+
+    async def tester():
+        for x in range(10):
+            try:
+                buff.event('put', x)
+            except ValueError:
+                pass
+        await asyncio.sleep(0)
+    await runtest(tester())
+    assert log == [101, 103, 105, 107, 109, 155]

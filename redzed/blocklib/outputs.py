@@ -1,8 +1,9 @@
 """
 Output blocks.
 - - - - - -
-Docs: https://edzed.readthedocs.io/en/latest/
-Home: https://github.com/xitop/edzed/
+Part of the redzed package.
+Docs: https://redzed.readthedocs.io/en/latest/
+Home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import typing as t
 
 import redzed
 from redzed.utils import BufferShutDown, cancel_shield, func_call_string, MsgSync, time_period
+from .validator import _Validate
 
 
 class OutputFunc(redzed.Block):
@@ -37,13 +39,13 @@ class OutputFunc(redzed.Block):
                 self.event('put', value)
 
     def _event_put(self, edata: redzed.EventData) -> t.Any:
-        arg = edata['evalue']
+        evalue = edata['evalue']
         if redzed.get_debug_level() >= 1:
-            self.log_debug("Running %s", func_call_string(self._func, (arg,)))
+            self.log_debug("Running %s", func_call_string(self._func, (evalue,)))
         try:
-            result = self._func(arg)
+            result = self._func(evalue)
         except Exception as err:
-            func_args = func_call_string(self._func, (arg,))
+            func_args = func_call_string(self._func, (evalue,))
             self.log_error("Output function failed; call: %s; error: %r", func_args, err)
             err.add_note(f"Error occurred in function call {func_args}")
             self.circuit.abort(err)
@@ -56,18 +58,30 @@ class OutputFunc(redzed.Block):
             self._event_put({'evalue': self._stop_value})
 
 
-class _Buffer(redzed.Block):
+class _Buffer(_Validate, redzed.Block):
     def __init__(
             self, *args,
             stop_value: t.Any = redzed.UNDEF,
             triggered_by: str|redzed.Block|redzed.Formula|redzed.UndefType = redzed.UNDEF,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._stop_value = stop_value
+        # the stop_value is stored already validated
+        self._stop_value = \
+            redzed.UNDEF if stop_value is redzed.UNDEF else self._validate(stop_value)
         if triggered_by is not redzed.UNDEF:
             @redzed.triggered
             def trigger(value=triggered_by) -> None:
                 self.event('put', value)
+
+    def _event_put(self, edata: redzed.EventData) -> None:
+        """Put an item into the queue."""
+        # not aggregating following two lines in order to have a clear traceback
+        evalue = edata['evalue']
+        evalue = self._validate(evalue)
+        self.rz_put_value(evalue)
+
+    def rz_put_value(self, value: t.Any) -> None:
+        raise NotImplementedError
 
     def rz_get_size(self) -> int:
         raise NotImplementedError
@@ -91,13 +105,10 @@ class QueueBuffer(_Buffer):
         self._queue: asyncio.Queue[t.Any] = queue_type(maxsize)
         # Queue.shutdown is available in Python 3.13, but we want to support 3.11+
         self._waiters = 0
+        self._shutdown = False
 
-    def _event_put(self, edata: redzed.EventData) -> None:
-        """Put an item into the queue."""
-        evalue = edata['evalue']
-        if evalue is redzed.UNDEF:
-            raise ValueError(f"{self}: Cannot put UNDEF into the buffer")
-        self._queue.put_nowait(evalue)
+    def rz_put_value(self, value: t.Any) -> None:
+        self._queue.put_nowait(value)
 
     def rz_get_size(self) -> int:
         """Get the number of items in the buffer."""
@@ -107,11 +118,14 @@ class QueueBuffer(_Buffer):
         return self.rz_get_size()
 
     def rz_stop(self) -> None:
-        # stop_value might be UNDEF
-        self._queue.put_nowait(self._stop_value)
-        # unblock waiters (-1 accounts for the inserted stop value)
-        for _ in range(self._waiters - 1):
-            self._queue.put_nowait(redzed.UNDEF)
+        waiters = self._waiters
+        if self._stop_value is not redzed.UNDEF:
+            self.rz_put_value(self._stop_value)
+            waiters -= 1
+        # unblock waiters
+        for _ in range(waiters):
+            self.rz_put_value(redzed.UNDEF)
+        self._shutdown = True
 
     async def rz_buffer_get(self) -> t.Any:
         """
@@ -121,7 +135,7 @@ class QueueBuffer(_Buffer):
         After the shutdown drain the queue
         and then raise BufferShutDown to each caller.
         """
-        if self.circuit.after_shutdown() and self._queue.qsize() == 0:
+        if self._shutdown and self._queue.qsize() == 0:
             raise BufferShutDown("The buffer was shut down")
         self._waiters += 1
         try:
@@ -156,9 +170,8 @@ class MemoryBuffer(_Buffer):
     def _event__get_size(self, _edata: redzed.EventData) -> int:
         return self.rz_get_size()
 
-    def _event_put(self, edata: redzed.EventData) -> None:
-        """Put an item into the memory cell. Existing value will be overwritten."""
-        self._cell.send(edata['evalue'])
+    def rz_put_value(self, value: t.Any) -> None:
+        self._cell.send(value)
 
     def rz_stop(self) -> None:
         """Shut down"""
@@ -189,20 +202,20 @@ class MemoryBuffer(_Buffer):
 
 class OutputWorker(redzed.Block):
     """
-    Run a coroutine for each value from a buffer.
+    Run an awaitable for each value from a buffer.
     """
 
     def __init__(
             self, *args,
             buffer: str|redzed.Block,
-            coro_func: Callable[[t.Any], Awaitable[t.Any]],   # i.e. an async function
+            aw_func: Callable[[t.Any], Awaitable[t.Any]],   # e.g. an async function
             workers: int = 1,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
         if workers < 1:
             raise ValueError(f"{self}: At least one worker is required")
         self._buffer = buffer
-        self._corofunc = coro_func
+        self._aw_func = aw_func
         self._workers = workers
         self._worker_tasks: list[asyncio.Task[None]] = []
 
@@ -222,10 +235,9 @@ class OutputWorker(redzed.Block):
             try:
                 if redzed.get_debug_level() >= 1:
                     self.log_debug(
-                        "%s: Awaiting coroutine %s",
-                        wname, func_call_string(self._corofunc, (value,)))
-                await self._corofunc(value)
-                self.log_debug2("%s: coroutine done", wname)
+                        "%s: Awaiting %s", wname, func_call_string(self._aw_func, (value,)))
+                await self._aw_func(value)
+                self.log_debug2("%s: await done", wname)
             except Exception as err:
                 err.add_note(f"Processed value was: {value!r}")
                 raise
@@ -241,27 +253,30 @@ class OutputWorker(redzed.Block):
                     self._worker(wname), auto_cancel=False, name=f"{self}: {wname}"))
 
     async def rz_astop(self) -> None:
+        worker_tasks = [worker for worker in self._worker_tasks if not worker.done()]
+        if not worker_tasks:
+            return
         try:
-            await asyncio.wait(self._worker_tasks)
+            await asyncio.wait(worker_tasks)
         except asyncio.CancelledError:
             # stop_timeout from the circuit runner
-            for worker in self._worker_tasks:
+            for worker in worker_tasks:
                 if not worker.done():
                     worker.cancel()
             await asyncio.sleep(0)
-            if (running := sum(1 for worker in self._worker_tasks if not worker.done())) > 0:
+            if (running := sum(1 for worker in worker_tasks if not worker.done())) > 0:
                 self.log_warning("%d worker(s) did not stop", running)
             raise
 
 class OutputController(redzed.Block):
     """
-    Run a coroutine for the latest value from a buffer.
+    Run an awaitable for the latest value from a buffer.
     """
 
     def __init__(
             self, *args,
             buffer: str|redzed.Block,
-            coro_func: Callable[[t.Any], Awaitable[t.Any]],     # i.e. an async function
+            aw_func: Callable[[t.Any], Awaitable[t.Any]],     # e.g. an async function
             rest_time: float|str = 0.0,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -269,7 +284,7 @@ class OutputController(redzed.Block):
         if self._rest_time >= self.rz_stop_timeout:
             raise ValueError(f"{self}: rest_time must be shorter than the stop_timeout")
         self._buffer = buffer
-        self._corofunc = coro_func
+        self._aw_func = aw_func
         self._main_loop_task: asyncio.Task[None]|None = None
 
     def rz_pre_init(self) -> None:
@@ -284,7 +299,7 @@ class OutputController(redzed.Block):
 
     async def _run_with_rest_time(self, value: t.Any) -> None:
         try:
-            await self._corofunc(value)
+            await self._aw_func(value)
         except asyncio.CancelledError:
             self.log_debug2("Task cancelled")
             await self._rest_time_delay()
@@ -331,7 +346,7 @@ class OutputController(redzed.Block):
             if redzed.get_debug_level() >= 1:
                 self.log_debug(
                     "Creating task: %s%s",
-                    func_call_string(self._corofunc, (value,)),
+                    func_call_string(self._aw_func, (value,)),
                     " + rest time" if self._rest_time > 0.0 else "",
                     )
             task = asyncio.create_task(self._run_with_rest_time(value))

@@ -27,6 +27,10 @@ few preparations before it can send its schedule to the cron:
     A method called by cron with one argument, the current time.
     Only blocks with this method are able to use cron.
 
+    :meth:`!Block.rz_cron_event` will be called according to a schedule,
+    but may be called also at other times, most notably when
+    the computer clock makes a jump like when the DST begins or ends.
+
 - Get and save a reference to the cron object before using it
   for the first time. Choose either the UTC time or the local time::
 
@@ -41,7 +45,8 @@ objects.
 .. important::
 
   Do not include any timezone information in the :class:`datetime.time` objects.
-  The cron accepts only a so-called "naive" time objects.
+  The cron accepts only a so-called "naive" time objects. The timezone
+  is always implied from cron's configuration.
 
 Finally, use the saved reference to post the schedule to the cron::
 
@@ -52,7 +57,7 @@ The called method is:
 .. method:: Cron.set_schedule(self, blk: Block, times_of_day: Collection[datetime.time]) -> None:
 
   Replace any existing schedule for block *blk* with the new schedule *times_of_day*.
-  Block's :meth:`!blk.rz_cron_event` will be called at given times regardless of date.
+  Block's :meth:`Block.blk.rz_cron_event` will be called at given times regardless of date.
 
   Note that the :class:`Cron` class is not a public symbol.
 
@@ -69,8 +74,8 @@ Their names are ``'_cron_local'`` and ``'_cron_utc'`` respectively.
 Inspecting schedule
 -------------------
 
-The cron blocks support the ':ref:`_get_config`' monitoring event which returns
-the scheduling data for the whole circuit.
+The cron server block supports the ':ref:`_get_config`' monitoring event.
+It returns the scheduling data for the whole circuit.
 
 
 DST adjustments
@@ -80,13 +85,13 @@ The :abbr:`DST (Daylight Saving Time a.k.a. Summer time)` affects the local time
 in many time zones, but not the UTC time. If you do not want any irregularities,
 consider switching to the UTC zone.
 
-The cron service detects the changes in the clock time, but it does not
-modify its behavior:
+- When the DST starts, the clock is moved forward
+  and scheduled actions that would have been made in that time are skipped.
 
-- When DST starts, the clock is moved forward
-  and actions that would have been made in that time are skipped.
-
-- When DST ends, the clock is rolled back and actions scheduled for that time
+- When the DST ends, the clock is rolled back and actions scheduled for that time
   are executed twice. To mitigate, client blocks may check the
   `datetime.time.fold [↗] <https://docs.python.org/3/library/datetime.html#datetime.time.fold>`_
   attribute of the *now* argument.
+
+- As with every detected clock time jump, *all* cron client blocks get
+  an unscheduled :meth:`Block.rz_cron_event` call.

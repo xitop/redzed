@@ -4,12 +4,11 @@ Small utilities.
 from __future__ import annotations
 
 __all__ = [
-    'check_async_coro', 'check_async_func', 'check_identifier', 'func_call_string',
+    'check_identifier', 'func_name', 'func_call_string',
     'is_multiple', 'tasks_are_eager', 'to_tuple']
 
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
-import inspect
 import itertools
 import logging
 import typing as t
@@ -24,7 +23,7 @@ def check_identifier(name: t.Any, msg_prefix: str) -> None:
     if not name:
         raise ValueError(f"{msg_prefix} cannot be an empty string")
     if not name.isidentifier():
-        raise ValueError(f"{msg_prefix} must be a valid identifier, got '{name!r}'")
+        raise ValueError(f"{msg_prefix} must be a valid identifier, got '{name}'")
 
 
 def is_multiple(arg: t.Any) -> bool:
@@ -50,19 +49,29 @@ def to_tuple(args: _T_item|Sequence[_T_item]) -> tuple[_T_item, ...]:
     return t.cast(tuple[_T_item], (args,))
 
 
-# must not touch *kwargs* # pylint: disable-next=dangerous-default-value
+def func_name(func: Callable[..., t.Any]) -> str:
+    """Return the name of a callable."""
+    if not callable(func):
+        raise TypeError(f"{func!r} is not callable")
+    if (name := getattr(func, '__name__', None)) is not None:
+        return name
+    # callable objects with __call__ do not have a __name__
+    if not isinstance(func, type) and (hasattr(ftype := type(func), '__call__')):
+        return f'{ftype.__name__}.__call__'
+    # fail-safe default, though there is no such type of callable
+    return ftype.__name__
+
+
 def func_call_string(
         func: Callable[..., t.Any]|None,
         args: Sequence[t.Any],
-        kwargs: Mapping[str, t.Any] = {}
+        kwargs: Mapping[str, t.Any]|None = None
         ) -> str:
     """Convert args and kwargs to a printable string."""
-    arglist = '(' + ', '.join(itertools.chain(
-        (repr(a) for a in args),
-        (f"{k}={v!r}" for k, v in kwargs.items()))) + ')'
-    if func is None:
-        return arglist
-    return func.__name__ + arglist
+    agen = (repr(a) for a in args)
+    gen = itertools.chain(agen, (f"{k}={v!r}" for k, v in kwargs.items())) if kwargs else agen
+    arglist = f"({', '.join(gen)})"
+    return arglist if func is None else func_name(func) + arglist
 
 
 def tasks_are_eager() -> bool:
@@ -81,36 +90,3 @@ def tasks_are_eager() -> bool:
         flag = True
     asyncio.create_task(test_task())
     return flag
-
-
-def check_async_coro(arg: t.Any) -> None:
-    """
-    Check if arg is a coroutine object.
-
-    Raise a TypeError with a descriptive message if it isn't.
-    """
-    if inspect.iscoroutine(arg):
-        return
-    if inspect.iscoroutinefunction(arg):
-        received = f"an async function '{arg.__name__}'. Did you mean '{arg.__name__}()'?"
-    else:
-        received = repr(arg)
-    raise TypeError(f"Expected a coroutine, but got {received}")
-
-
-def check_async_func(arg: t.Any) -> None:
-    """
-    Check if *arg* is an async function.
-
-    Raise a TypeError with a descriptive message if it isn't.
-    """
-    if inspect.iscoroutinefunction(arg):
-        return
-    if inspect.iscoroutine(arg):
-        received = (f"a coroutine '{arg.__name__}()'. "
-            + f"Did you mean '{arg.__name__}' without parentheses?")
-    elif callable(arg):
-        received = f"a non-async function/callable '{arg.__name__}'"
-    else:
-        received = repr(arg)
-    raise TypeError(f"Expected an async function, but got {received}")

@@ -42,7 +42,7 @@ async def output_ctrl(
     buff = redzed.MemoryBuffer(
         'buff', triggered_by='inp', stop_value=kwargs.pop('stop_value', redzed.UNDEF))
     redzed.OutputController(
-        'out', coro_func=work_80, buffer=buff, rest_time=rest_time, **kwargs)
+        'out', aw_func=work_80, buffer=buff, rest_time=rest_time, **kwargs)
     logger = TimeLogger('logger', mstop=True)
 
     async def tester():
@@ -155,4 +155,4 @@ async def test_rest_time_too_long(circuit):
         redzed.OutputController(
             'not_OK',
             buffer=redzed.MemoryBuffer(redzed.unique_name()),
-            coro_func=dummy, rest_time=1.5, stop_timeout=1.0)
+            aw_func=dummy, rest_time=1.5, stop_timeout=1.0)

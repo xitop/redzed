@@ -7,15 +7,15 @@ The redzed package allows to build a so-called "circuit" containing:
 
 The application code must connect the circuit with outside world.
 
-Copyright (c) 2025 Vlado Potisk <redzed@poti.sk>.
+Copyright (c) 2025-2026 Vlado Potisk <redzed@poti.sk>.
 
 Released under the MIT License.
 
-# Docs: https://redzed.readthedocs.io/en/latest/
-# Home: https://github.com/xitop/redzed/
+Docs: https://redzed.readthedocs.io/en/latest/
+Home: https://github.com/xitop/redzed/
 """
 
-__version_info__ = (25, 12, 30)
+__version_info__ = (26, 1, 28)
 __version__ = '.'.join(str(n) for n in __version_info__)
 
 from . import circuit, block, debug, formula_trigger, initializers, undef

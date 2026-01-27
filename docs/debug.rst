@@ -30,19 +30,29 @@ to the standard output. Messages with severities :const:`!logging.DEBUG`
 and :const:`!logging.INFO` won't be printed.
 
 The easiest way to create a handler that will print all messages
-to the standard output is just one line::
+to the standard error stream (i.e. to the terminal if not redirected)
+is just one line::
 
   logging.basicConfig(level=logging.DEBUG)
 
 Being just a library, Redzed should not interfere with the logging
 configuration. However, debugging needs debug messages, so we made
-this exception from the rule:
+an exception from the rule:
 
 .. important::
 
-  If the debug level is not zero and there are no logging handlers for Redzed's
-  logger configured, Redzed attaches a :class:`!StreamHandler` to its logger,
-  that will print messages of all severities.
+  Under circumstances explained below, Redzed will create and use a
+  `StreamHandler [↗] <https://docs.python.org/3/library/logging.handlers.html#logging.StreamHandler>`_
+  that will print messages of severity DEBUG and higher.
+
+If the :ref:`debug level <Debug levels>` is not zero and there are no
+logging handlers configured, Redzed's attaches a :class:`!StreamHandler`
+to its logger and stops propagating log records to the root logger.
+This is done initially when the circuit runner is started
+and then each time a non-zero debug level is set.
+
+In other words, to have the logging completely under control,
+please configure it before you call :func:`redzed.run`.
 
 
 Debug output

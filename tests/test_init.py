@@ -36,7 +36,7 @@ def test_no_apply_error(circuit):
             super().rz_init(value)
 
     mem = StrMemory(
-        "m", initial=[redzed.InitValue(0), redzed.InitValue(None), redzed.InitValue("zero")])
+        "m", initial=[0, None, redzed.InitValue("zero")])   # one item must be an initializer
     with patch.object(mem, 'log_error', wraps=mem.log_error) as wrapped:
         mini_init(circuit)
         assert wrapped.call_count == 2

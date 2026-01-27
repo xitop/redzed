@@ -166,7 +166,7 @@ Application interface
 ---------------------
 
 The application interface is the most important supporting task. It is often
-the only supporting tasks. Its main responsibility is to connect circuit inputs
+the only supporting task. Its main responsibility is to connect circuit inputs
 with corresponding data sources. It usually listens on some communication channel for
 incoming data and control commands and replies with ACKs, results
 or error messages. An interface must take care of:

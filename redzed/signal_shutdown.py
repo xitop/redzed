@@ -2,8 +2,8 @@
 Stop the runner with a signal.
 - - - - - -
 Part of the redzed package.
-# Docs: https://redzed.readthedocs.io/en/latest/
-# Project home: https://github.com/xitop/redzed/
+Docs: https://redzed.readthedocs.io/en/latest/
+Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ class TerminatingSignal:
         """A signal handler."""
         # - we need the _threadsafe variant of call_soon
         # - get_running loop() and get_circuit() will succeed,
-        #   because this handler is active only during edzed.run()
+        #   because this handler is active only during redzed.run()
         msg = f"Signal {self._signame!r} caught"
         call_soon = asyncio.get_running_loop().call_soon_threadsafe
         call_soon(_logger.warning, "%s", msg)

@@ -35,7 +35,7 @@ async def test_args(circuit):
         [[2025, 3, 1, 12, 0], [2025, 3, 7, 18, 30, 1, 150_000]],
         [[2025, 10, 10, 10, 30, 0], [2025, 10, 10, 22, 0, 0]],
     ]
-    td_num = redzed.TimeSpan('num_args', initial=arg) #redzed.InitValue(arg))
+    td_num = redzed.TimeSpan('num_args', initial=arg)   # i.e. redzed.InitValue(arg))
 
     for sub_interval in arg:
         for endpoint in sub_interval:

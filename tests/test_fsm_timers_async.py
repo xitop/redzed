@@ -24,10 +24,9 @@ async def test_duration(circuit):
     cnt = 0
 
     class PWM(redzed.FSM):
-        ALL_STATES = ('off', 'on')
-        TIMED_STATES = [
-            ['on', None, 'off'],
+        STATES = [
             ['off', None, 'on'],
+            ['on', None, 'off'],
             ]
         EVENTS = (
             ('start', ..., 'on'),
@@ -90,8 +89,7 @@ async def test_start(circuit):
     """Test if activity starts at the right moment."""
 
     class Delay(redzed.FSM):
-        ALL_STATES = ['begin', 'end']
-        TIMED_STATES = [('begin', "0.1s", 'end')]
+        STATES = [('begin', "0.1s", 'end'), 'end']
 
     redzed.Memory('slow_init', initial=[redzed.InitWait(0.05), redzed.InitValue("i")])
     logger = TimeLogger('logger', mstart=True, mstop=True)
@@ -109,10 +107,7 @@ async def test_start(circuit):
 async def test_afterrun(circuit):
     """Test after-run example from docs"""
     class AfterRun(redzed.FSM):
-        ALL_STATES = ['off', 'on', 'afterrun']
-        TIMED_STATES = [
-            ['afterrun', None, 'off']
-        ]
+        STATES = ['off', 'on', ['afterrun', None, 'off']]
         EVENTS = [
             ['start', ['off'], 'on'],
             ['stop', ['on'], 'afterrun'],

@@ -18,10 +18,9 @@ class Timer(FSM):
     A timer.
     """
 
-    ALL_STATES = ['off', 'on']
-    TIMED_STATES = [
-        ['on', float("inf"), 'off'],
-        ['off', float("inf"), 'on']]
+    STATES = [
+        ['off', float("inf"), 'on'],
+        ['on', float("inf"), 'off']]
     EVENTS = [
         ['start', ..., 'on'],
         ['stop', ..., 'off'],

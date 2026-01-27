@@ -41,7 +41,7 @@ FSM introduction
 Let's start with a simple example::
 
   class Turnstile(redzed.FSM):
-      ALL_STATES = ['locked', 'unlocked']
+      STATES = ['locked', 'unlocked']
       EVENTS = [
           ['coin', ['locked'], 'unlocked'],
           ['push', ['unlocked'], 'locked'],
@@ -79,19 +79,16 @@ A new FSM is type created by subclassing the base class.
 
   Base class for creating FSMs.
 
-  Subclasses are supposed to define these class attributes:
+  Subclasses must define two class attributes:
 
-  - :obj:`FSM.ALL_STATES`
-  - :obj:`FSM.TIMED_STATES`
+  - :obj:`FSM.STATES`
   - :obj:`FSM.EVENTS`
 
-  All three are empty by default.
-
-  A subclass may also define these hooks:
+  and may define these hooks:
 
   - :ref:`state entry and exit actions <State entry and exit actions>`
   - :ref:`conditions for event acceptance <Conditional events>`
-  - :ref:`timed state duration setter <Timed state duration>`
+  - :ref:`timed state duration setters <Timed state duration>`
 
 
 States, events, transitions
@@ -110,33 +107,29 @@ but using the same name for both is discouraged.
 The :meth:`FSM.event` method returns :const:`True` for accepted FSM events
 and :const:`False` for rejected FSM events.
 
-.. attribute:: FSM.ALL_STATES
-  :type: Sequence[str]
+In Redzed, there are also *timed states*. A timed state has a timer
+associated with it. After certain time, the timer generates a synthetic event
+causing a transition to another state.
+
+
+.. attribute:: FSM.STATES
+  :type: Sequence[str|Sequence]
 
   Class attribute.
 
-  A :abbr:`sequence (a list or tuple)` of all valid states, i.e. including
-  timed states from :obj:`FSM.TIMED_STATES`. The very first item in this list
-  is the default initial state.
+  A :abbr:`sequence (a list or tuple)` of all valid states, timed and non-timed.
+  The very first item in this list is the default initial state.
 
-.. attribute:: FSM.TIMED_STATES
-  :type: Sequence[Sequence]
-
-  Class attribute.
-
-  A :abbr:`sequence (a list or tuple)` of individual timers.
-  A state with an attached timer is called a "timed state".
-  Apart from the timer are timed states not different from other states.
-
-  An individual timer is defined with a sequence of 3 values::
+  A regular state is given by its name (string). A timed state is defined by
+  a sequence of three values::
 
     # timed_state: str
     # default_duration: str | float | None
     # next_state: str
     [timed_state, default_duration, next_state]
 
-  This default duration can be overridden statically in an instance
-  and also dynamically. Refer to :ref:`Duration of timed state`.
+  The default duration can be overridden statically in an instance
+  and also dynamically at runtime. Refer to: :ref:`Duration of timed state`.
 
 .. attribute:: FSM.EVENTS
   :type: Sequence[Sequence]
@@ -164,7 +157,7 @@ and :const:`False` for rejected FSM events.
 
     - a sequence of states (strings)
     - a literal *...* (a.k.a. the Ellipsis) as a special value for any state.
-      An entry with *...* has lower precedence than entries with explicitly
+      An entry with *...* has lower priority than entries with explicitly
       listed states.
 
   - *next_state* must be:
@@ -174,18 +167,19 @@ and :const:`False` for rejected FSM events.
 
   Examples of :attr:`!EVENTS` entries::
 
-    ('start', ['on', 'off'], 'on'),
-
-    # same as above if there exist only the 'on' and 'off' states,
-    # because ... means any state
-    ('start', ..., 'on'),
-
-    # same as the previous line, except that an override is now not possible,
-    # because states are explicitly given
-    ('start', ALL_STATES, 'on'),
+    # when an FSM is in state 'sleep' or 'on',
+    # the event 'start' changes its state to 'off'
+    ('start', ['sleep', 'on'], 'off'),
 
     # a single state must be given as a sequence too
     ('push', ['unlocked'], 'locked'),
+
+    # If there exist only states 'sleep', 'on', and 'off', then the following
+    # two lines have the same meaning, because the symbol ... means any state.
+    # However the former (with ... = lower priority) can be overridden,
+    # but the latter (with explicitly listed states = higher priority) cannot:
+    ('start', ..., 'on'),
+    ('start', ['sleep', 'on', 'off'], 'on'),
 
     ["finish", ..., "off"],     # default rule for 'finish' event and all states except
                                 # more specific rules for 'not_ready' and 'pause' below
@@ -388,10 +382,9 @@ FSM examples
 :class:`Timer` source (some checks omitted for brevity)::
 
   class Timer(fsm.FSM):
-      ALL_STATES = ['off', 'on']
-      TIMED_STATES = [
-          ['on', float("inf"), 'off'],
-          ['off', float("inf"), 'on']]
+      STATES = [
+          ['off', float("inf"), 'on'],
+          ['on', float("inf"), 'off']]
       EVENTS = [
           ['start', ..., 'on'],
           ['stop', ..., 'off'],
@@ -424,8 +417,9 @@ calculated as a percentage of the regular run duration. :attr:`FSM.sdata` is use
 to hold the timestamp necessary for the calculation::
 
   class AfterRun(redzed.FSM):
-      ALL_STATES = ['off', 'on', 'afterrun']
-      TIMED_STATES = [
+      STATES = [
+          'off',
+          'on',
           ['afterrun', None, 'off'],
       ]
       EVENTS = [
@@ -442,7 +436,7 @@ to hold the timestamp necessary for the calculation::
       def _set_output(self, output):
           return super()._set_output(output != 'off')
 
-  AfterRun('ar', x_percentage=50)
+  AfterRun('after_run', x_percentage=50)
 
 
 Creating FSM blocks
@@ -474,7 +468,7 @@ state and event names.
 
 - ``initial=...``
     This parameter sets the initial FSM state. Default is the first state
-    listed in :obj:`FSM.ALL_STATES`. The *initial* argument also controls
+    listed in :obj:`FSM.STATES`. The *initial* argument also controls
     the persistent state which can be enabled using :class:`RestoreState`.
 
     See: :ref:`Block initializers <Initializers>`

@@ -78,16 +78,14 @@ For a description visit :ref:`setting the name <Setting the name>`.
 
   **output_counter** (bool) - append a sequence number
     When enabled, the output is a tuple ``(value, sequence_number)``
-    instead of just ``value``. The ``sequence_number`` changes with
-    each output operation. This guarantees a different output even
-    if the new ``value`` happens to be exactly the same as the previous one.
+    instead of just ``value``. The ``sequence_number`` is an integer
+    starting at 0 and incremented with each output operation.
+    This guarantees a different output even if the new ``value``
+    happens to be exactly the same as the previous one.
 
     Use the counter if you want to activate a connected trigger for each value
     in a series of same values. Do not use it if such series means
-    a constant level.
-
-    The sequence_number is an integer >= 0 and it wraps around to zero
-    at some large value.
+    a constant level that does not require an action.
 
   **output_previous** (bool) - append the previous value
     When enabled, the output is a tuple ``(current_value, previous_value)``
@@ -110,9 +108,12 @@ For a description visit :ref:`setting the name <Setting the name>`.
 
   Set the output value. It is not allowed to output :const:`UNDEF`.
 
-  Return :const:`True` if the output has changed. In this case dependent formulas are
-  recalculated and affected triggers activated. Return :const:`False` if the output value
-  is the same as before and therefore no circuit activity took place.
+  Return :const:`True` if the output has changed. In this case, dependent formulas are
+  recalculated and (subsequently) affected triggers activated. Return :const:`False`
+  if the output value is the same as before and therefore no circuit activity took place.
+
+  If you override :meth:`!Block._set_output` in a subclass, please don't forget to return
+  a proper value; in most cases: ``return super()._set_output(modified_output)``.
 
 
 3. Circuit membership
@@ -186,8 +187,9 @@ for its functionality.
   This method is called once after a successful initialization of all blocks.
 
   Block's own activity is any activity other than reacting to received events.
-  A typical example are timer based actions. Regarding this own activity, blocks
-  are required to remain idle until receiving this start call.
+  A typical example are timer based actions. Regarding this own activity,
+  unless it's needed for the initialization, blocks should remain idle
+  until receiving this start call.
 
 
 5. Persistent state
@@ -321,7 +323,7 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
 
 7A. Entry point:
 
-.. method:: Block.event(etype: str, evalue: Any = redzed.UNDEF, /, **edata: Any) -> Any
+.. method:: Block.event(etype: str, /, evalue: Any = redzed.UNDEF, **edata: Any) -> Any
 
     Handle the incoming event of type *etype* with optionally attached *edata*
     by dispatching it to the appropriate handler. Return the handler's exit value.
@@ -329,7 +331,7 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
     :exc:`CircuitShutDown` is raised if a non-monitoring event arrives after
     circuit's shutdown.
 
-    The *evalue* is part of the *edata*. If it is given, it is inserted
+    The *evalue* is part of the *edata*. If it is given (i.e. not :const:`UNDEF`), it is inserted
     into *edata* as ``edata['evalue']``. It is accepted either as a positional or
     as a keyword argument just for convenience.
 
@@ -419,28 +421,3 @@ will be processed or transmitted. If not sure, prefer JSON serializable data str
 
   .. attribute:: Block.X_ANYNAME
     :type: Any
-
-
-Example (Memory)
-================
-
-Implementation of :class:`Memory`, but without data validation for brevity::
-
-  class Memory(redzed.Block):
-      def _store_value(self, value: Any) -> bool:
-          if value is redzed.UNDEF:
-              return False
-          self._set_output(value)
-          return True
-
-      def _event_store(self, edata: redzed.EventData) -> bool:
-          return self._store_value(edata['evalue'])
-
-      def rz_init(self, init_value: Any, /) -> None:
-          self._store_value(init_value)
-
-      def rz_export_state(self) -> Any:
-          return self.get()
-
-      def rz_restore_state(self, state) -> None:
-          self._store_value(state)

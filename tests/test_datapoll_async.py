@@ -225,7 +225,7 @@ async def test_init_timeout(circuit):
         'dp',
         func=lambda: redzed.UNDEF,  # it never delivers
         interval=2,                 # don't care
-        initial=[redzed.InitWait(0.08), redzed.InitValue('DEFAULT')])
+        initial=[redzed.InitWait(0.08), 'DEFAULT'])
     await runtest(sleep=0.12)
     logger.compare([(80, 'DEFAULT')])
 
@@ -261,7 +261,7 @@ async def _do_test_async_init_timeout(init_timeout, slog):
         'dp',
         func=w3,
         interval=10,                # don't care
-        initial=[redzed.InitWait(init_timeout), redzed.InitValue('DEFAULT')])
+        initial=[redzed.InitWait(init_timeout), 'DEFAULT'])
 
     await runtest(sleep=0)
     logger.compare(slog)
@@ -275,30 +275,6 @@ async def test_async_init_timeout_1(circuit):
 async def test_async_init_timeout_2(circuit):
     """Test the async initialization time_out < polling function delay."""
     await _do_test_async_init_timeout(0.05, [(50, 'DEFAULT')])
-
-
-async def test_validator(circuit):
-    """Test data validation."""
-    n = 1
-    def gen():
-        nonlocal n
-        n += 1
-        return n
-
-    def even_only(n):
-        if n % 2:
-            raise ValueError("Odd!")
-        return n
-
-    cnt = 0
-    redzed.DataPoll('dp', func=gen, validator=even_only, interval=0.007, initial=0)
-    @redzed.triggered
-    def count_values(dp):
-        nonlocal cnt
-        cnt += 1
-
-    await runtest(sleep=0.2)
-    assert cnt == n // 2
 
 
 async def test_timing_adjustment(circuit):

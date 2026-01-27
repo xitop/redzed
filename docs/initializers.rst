@@ -67,11 +67,20 @@ A block can have zero, one or more initializers.
 
 - Multiple initializers:
     Use a list or a tuple of initializers as the *initial* argument,
-    the order matters::
+    the order matters. **Important**: at least one item must be
+    an initializer object.::
 
       initial=[<initializer1>, <initializer2>, ...]
 
-    The shortcut mentioned above does not apply in this case.
+    The shortcut for fixed values mentioned above does apply in this case too::
+
+      # single initializer:
+      initial=[1, 2]              # shortcut applies to list [1, 2]
+      initial=InitValue([1, 2])   # explicit equivalent
+
+      # multiple initializers (at least one item is an initializer):
+      initial=[RestoreState(), 2]             # shortcut applies to integer 2
+      initial=[RestoreState(), InitValue(2)]  # explicit equivalent
 
 .. warning::
   Initializers are not reusable::
@@ -147,10 +156,11 @@ be utilized by circuit inputs only. This kind of initialization has a higher cha
 unsuccessful. For reliability combine it with sync initializers like :class:`InitValue`;
 there is an example at the bottom of this page.
 
-.. class:: InitTask(coro_func: Callable[..., Coroutine], *args: Any, timeout: float|str = 10.0)
+.. class:: InitTask(aw_func: Callable[..., Awaitable], *args: Any, timeout: float|str = 10.0)
 
-  Run an async function with arguments *args* as an async task with *timeout*.
+  Await an async function with arguments *args* in an async task with *timeout*.
   Initialize with the return value.
+  In exact terms is *aw_func* a callable returning an awaitable.
 
   Argument *timeout* is a number of seconds or a
   :ref:`string with time units <Time durations with units>`. Default timeout is 10 seconds.

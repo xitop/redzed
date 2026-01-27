@@ -43,7 +43,8 @@ def test_events(circuit):
         mem.event('sleep')  # unknown event
 
 
-def test_validator(circuit):
+@pytest.mark.parametrize('suppress', [False, True])
+def test_validator(circuit, suppress):
     """Test the validator."""
     def is_multiple_of_5(n):
         if n % 5 == 0:
@@ -56,7 +57,14 @@ def test_validator(circuit):
     mini_init(circuit)
 
     assert mem.get() == 5
-    assert mem.event('store', 25) is True
+    assert mem.event('store', 25, suppress=suppress) is True
     assert mem.get() == 25
-    assert mem.event('store', 68) is False
+    if suppress:
+        assert mem.event('store', 68, suppress=True) is False
+    else:
+        with pytest.raises(ValueError):
+            mem.event('store', 68)
+        with pytest.raises(ValueError):
+            mem.event('store', 69, suppress=False)
+
     assert mem.get() == 25

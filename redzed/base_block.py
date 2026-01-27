@@ -2,8 +2,8 @@
 Base class of logic Blocks and Formulas.
 - - - - - -
 Part of the redzed package.
-# Docs: https://redzed.readthedocs.io/en/latest/
-# Project home: https://github.com/xitop/redzed/
+Docs: https://redzed.readthedocs.io/en/latest/
+Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 

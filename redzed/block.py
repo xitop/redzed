@@ -2,8 +2,8 @@
 Logic Blocks.
 - - - - - -
 Part of the redzed package.
-# Docs: https://redzed.readthedocs.io/en/latest/
-# Project home: https://github.com/xitop/redzed/
+Docs: https://redzed.readthedocs.io/en/latest/
+Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
@@ -43,6 +43,9 @@ class PersistenceFlags(enum.IntFlag):
     # EVENT and INTERVAL are mutually exclusive
     EVENT = enum.auto()     # save after each event
     INTERVAL = enum.auto()  # save periodically
+
+
+_INIT_TYPES = (initializers.SyncInitializer, initializers.AsyncInitializer)
 
 
 class Block(BlockOrFormula):
@@ -107,23 +110,18 @@ class Block(BlockOrFormula):
             if not self.has_method('rz_init'):
                 raise TypeError(
                     f"{self}: Keyword argument 'initial' is not supported by this block type")
-            init_types = (initializers.SyncInitializer, initializers.AsyncInitializer)
             if not is_multiple(initial):
-                if not isinstance(initial, init_types):
+                if not isinstance(initial, _INIT_TYPES):
                     initial = initializers.InitValue(initial)
                 self.rz_initializers = [initial]
+            elif any(isinstance(init, _INIT_TYPES) for init in initial):
+                # sequence of initializers
+                self.rz_initializers = [
+                    init if isinstance(init, _INIT_TYPES) else initializers.InitValue(init)
+                    for init in initial]
             else:
-                init_cnt = sum(1 for init in initial if isinstance(init, init_types))
-                if init_cnt == 0:
-                    # single value which happens to be a sequence
-                    self.rz_initializers = [initializers.InitValue(initial)]
-                elif init_cnt == len(initial):
-                    # sequence of initializers
-                    self.rz_initializers = initial
-                else:
-                    raise TypeError(
-                        f"{self}: Check the initial argument. "
-                        + "A non-initializer was found in the sequence of initializers.")
+                # single value which happens to be a sequence
+                self.rz_initializers = [initializers.InitValue(initial)]
 
         restore_initializers = [
             init for init in self.rz_initializers
@@ -185,8 +183,6 @@ class Block(BlockOrFormula):
         if self._counter >= 0:
             output = (output, self._counter)
             self._counter += 1
-            if self._counter >= 2**48:    # more than enough for this purpose
-                self._counter = 0
         if self._previous:
             output = (output, self._output)
         if not super()._set_output(output):

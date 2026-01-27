@@ -33,15 +33,13 @@ async def test_checkpointing(circuit):
     # no persistent state at all
     redzed.Memory('input', initial=0)
     # no checkpointing
-    nmem = redzed.Memory('nmem', initial=[redzed.RestoreState(), redzed.InitValue('n')])
+    nmem = redzed.Memory('nmem', initial=[redzed.RestoreState(), 'n'])
     # with periodic checkpointing
     smem = redzed.Memory(
-        'sync',
-        initial=[redzed.RestoreState(checkpoints='interval'), redzed.InitValue('i')])
+        'sync', initial=[redzed.RestoreState(checkpoints='interval'), 'i'])
     # with checkpoints after each event
     emem = redzed.Memory(
-        'ev',
-        initial=[redzed.RestoreState(checkpoints='event'), redzed.InitValue('e')])
+        'ev', initial=[redzed.RestoreState(checkpoints='event'), 'e'])
     circuit.set_persistent_storage(storage, sync_time=0.01)
     with patch.object(
             circuit, 'save_persistent_state', wraps=circuit.save_persistent_state) as wrapped:
@@ -57,10 +55,10 @@ async def test_checkpointing(circuit):
 async def test_fsm(circuit):
     """Test checkpointing after timer based events."""
     class FSM_012(redzed.FSM):
-        ALL_STATES = ['S1', 'S0', 'S2']
-        TIMED_STATES = [
+        STATES = [
             ['S0', "10ms", 'S1'],
             ['S1', "10ms", 'S2'],
+            'S2',
         ]
 
     fsm = FSM_012(

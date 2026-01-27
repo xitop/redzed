@@ -2,8 +2,8 @@
 The circuit runner.
 - - - - - -
 Part of the redzed package.
-# Docs: https://redzed.readthedocs.io/en/latest/
-# Project home: https://github.com/xitop/redzed/
+Docs: https://redzed.readthedocs.io/en/latest/
+Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ import typing as t
 
 from .block import Block, PersistenceFlags
 from .cron_service import Cron
-from .debug import get_debug_level
+from .debug import get_debug_level, set_debug_level
 from .initializers import AsyncInitializer
 from .formula_trigger import Formula, Trigger
 from .signal_shutdown import TerminatingSignal
 from .undef import UNDEF
-from .utils import check_async_coro, check_identifier, tasks_are_eager, time_period
+from .utils import check_identifier, tasks_are_eager, time_period
 
 _logger = logging.getLogger(__package__)
 _current_circuit: Circuit|None = None
@@ -448,6 +448,7 @@ class Circuit:
         if self.after_shutdown():
             # It looks like a supporting task has failed immediately after the start
             return
+        set_debug_level(get_debug_level())  # will check the existence of a logging handler
 
         pe_blocks = [blk for blk in self.get_items(Block) if blk.has_method('rz_pre_init')]
         pe_formulas = list(self.get_items(Formula))
@@ -681,7 +682,6 @@ class Circuit:
         """Create a service task for the circuit."""
         if self.after_shutdown():
             raise RuntimeError("Cannot create a service after shutdown")
-        check_async_coro(coro)
         # Python 3.12 and 3.13 only: Eager tasks start to run before their name is set.
         # As a workaround we tell the watchdog wrapper the name.
         task = asyncio.create_task(

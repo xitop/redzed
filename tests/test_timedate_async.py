@@ -150,7 +150,7 @@ async def test_cron(circuit):
     tdu = redzed.TimeDate(
         "utc",
         utc=True,
-        initial=redzed.InitValue({'times': [[[10,11,12], [13,14,15]], [[14,15], [16,17,0]]]})
+        initial={'times': [[[10,11,12], [13,14,15]], [[14,15], [16,17,0]]]}
         )
     cronu = circuit.resolve_name('_cron_utc')
 
@@ -189,7 +189,7 @@ async def test_cron(circuit):
 
 async def test_persistent(circuit):
     td = redzed.TimeDate(
-        "pers", initial=[redzed.RestoreState(), redzed.InitValue({'dates': []})])
+        "pers", initial=[redzed.RestoreState(), {'dates': []}])
     storage = {}
     circuit.set_persistent_storage(storage)
     conf = None

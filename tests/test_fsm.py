@@ -18,7 +18,7 @@ Grp = pytest.RaisesGroup
 def test_basic_state_transition(circuit):
     """Test the basic FSM function."""
     class B123(redzed.FSM):
-        ALL_STATES = 'S1 S2 S3'.split()
+        STATES = 'S1 S2 S3'.split()
         EVENTS = [
             ('step', ['S1'], 'S2'),
             ('step', ['S3'], 'S1'),
@@ -45,7 +45,7 @@ def test_basic_state_transition(circuit):
 def test_disallowed_state_transitions(circuit):
     """Test the basic FSM function."""
     class B123(redzed.FSM):
-        ALL_STATES = 'S1 S2 S3'.split()
+        STATES = 'S1 S2 S3'.split()
         EVENTS = [
             ('stepX1', ..., 'S1'),    # * -> S1
             ('stepX3', ..., 'S3'),    # * -> S3 ...
@@ -86,46 +86,70 @@ def test_invalid_states(circuit):
 
     with pytest.raises(ValueError, match="non-empty sequence"):
         class No2(redzed.FSM):
-            ALL_STATES = "S1"
+            STATES = "S1"
+
+    with pytest.raises(ValueError, match="Duplicate"):
+        class No3(redzed.FSM):
+            STATES = ["S1", "S2", "S2"]
+
+    with pytest.raises(ValueError, match="Duplicate"):
+        class No4(redzed.FSM):
+            STATES = [["S1", None, "S2"], "S2", ["S1", 1, "S2"]]
+
+
+def test_unknown_states(circuit):
+    with pytest.raises(ValueError, match="unknown"):
+        class No1(redzed.FSM):
+            STATES = ["S1", ["S2", 0, "S3"]]
+
+    with pytest.raises(ValueError, match="unknown"):
+        class No2(redzed.FSM):
+            STATES = ["A", "B", "C"]
+            EVENTS = [["e", ..., "nostate"]]
+
+    with pytest.raises(ValueError, match="unknown"):
+        class No3(redzed.FSM):
+            STATES = ["A", "B", "C"]
+            EVENTS = [["e", ["B", "nostate"], "A"]]
 
 
 def test_invalid_names(circuit):
     with pytest.raises(ValueError, match='empty'):
         class ErrValue1(redzed.FSM):
-            ALL_STATES = ['']
+            STATES = ['']
 
     with pytest.raises(ValueError, match='empty'):
         class ErrValue2(redzed.FSM):
-            ALL_STATES = ['S']
+            STATES = ['S']
             EVENTS = [('', 'S', 'S')]
 
     with pytest.raises(ValueError, match='Ambiguous'):
         class ErrValue3(redzed.FSM):
-            ALL_STATES = ['S']
+            STATES = ['S']
             EVENTS = [('FOO', 'S', 'S')]        # FSM event 'FOO'
             def _event_FOO(self, **kwargs):     # non-FSM event 'FOO'
                 pass
 
     with pytest.raises(ValueError, match='identifier'):
         class ErrValue4(redzed.FSM):
-            ALL_STATES = ['X']
+            STATES = ['X']
             EVENTS = [("Start:X", 'X', 'X')]
 
     with pytest.raises(TypeError):
         class ErrType1(redzed.FSM):
-            ALL_STATES = [5, 6]
+            STATES = [5, 6]
             EVENTS = [('E', 5, 6)]
 
     with pytest.raises(TypeError):
         class ErrType2(redzed.FSM):
-            ALL_STATES = ['X']
+            STATES = ['X']
             EVENTS = [(None, 'X', 'Y')]
 
 
 def test_goto(circuit):
     """Test the internal Goto special event."""
     class B123(redzed.FSM):
-        ALL_STATES = ('S1', 'S2', 'S3')
+        STATES = ('S1', 'S2', 'S3')
         EVENTS = [
             ('step', ['S1'], 'S2'),
             ('step', ['S2'], 'S3'),
@@ -153,7 +177,7 @@ def test_enter_exit_hooks(circuit):
     log = messages.append
 
     class B123(redzed.FSM):
-        ALL_STATES = 'S1 S2 S3'.split()
+        STATES = 'S1 S2 S3'.split()
         EVENTS = [
             ('step', ['S1'], 'S2'),
             ('step', ['S2'], 'S3'),
@@ -194,7 +218,7 @@ def test_enter_exit_hooks(circuit):
 def test_no_hook_without_state():
     """Test the state action hooks."""
     class B123(redzed.FSM):
-        ALL_STATES = ['S0']
+        STATES = ['S0']
 
     with pytest.raises(TypeError, match="invalid keyword argument"):
         B123('wrong_hook1', enter_S99=lambda: None)
@@ -206,7 +230,7 @@ def test_cond(circuit):
     """Test the cond_EVENT."""
     enable = True
     class B123(redzed.FSM):
-        ALL_STATES = 'S1 S2 S3'.split()
+        STATES = 'S1 S2 S3'.split()
         EVENTS = [
             ('step', ['S1'], 'S2'),
             ('step', ['S2'], 'S3'),
@@ -240,7 +264,7 @@ recursion_test_data = [
 def test_no_event_in_hooks_1(circuit, x_kwargs):
     """Hooks (methods) may not call event."""
     class TestFSM(redzed.FSM):
-        ALL_STATES = ["A", "B", "C"]
+        STATES = ["A", "B", "C"]
         EVENTS = [
             ["ab", ["A"], "B"],
             ["gotoC", ..., "C"],
@@ -270,7 +294,7 @@ def test_no_event_in_hooks_1(circuit, x_kwargs):
 def test_no_event_in_hooks_2(circuit, x_kwargs):
     """Hooks (external functions) may not call event."""
     class TestFSM(redzed.FSM):
-        ALL_STATES = ["A", "B", "C"]
+        STATES = ["A", "B", "C"]
         EVENTS = [
             ["ab", ["A"], "B"],
             ["gotoC", ..., "C"],
@@ -298,7 +322,7 @@ def test_no_event_in_hooks_2(circuit, x_kwargs):
 
 def test_persistent_state(circuit):
     class Dummy(redzed.FSM):
-        ALL_STATES = list("ABCDEF")
+        STATES = list("ABCDEF")
 
     def forbidden():
         assert False
@@ -328,7 +352,7 @@ def test_persistent_state(circuit):
 
 def test_read_only_data(circuit):
     class Simple(redzed.FSM):
-        ALL_STATES = ['st0', 'st1']
+        STATES = ['st0', 'st1']
         EVENTS = [('ev01', ..., 'st1')]
 
         def cond_ev01(self, data):
@@ -347,7 +371,7 @@ def test_read_only_data(circuit):
 def test_edata(circuit):
     """Each event being handled has its own data."""
     class Simple(redzed.FSM):
-        ALL_STATES = ['st0', 'st1']
+        STATES = ['st0', 'st1']
         EVENTS = [('ev01', ..., 'st1')]
 
         def cond_ev01(self, data):
@@ -367,7 +391,7 @@ def test_edata(circuit):
 def test_dispatch_table(circuit):
     """No bogus entries in the dispatch table."""
     class EvHandler(redzed.FSM):
-        ALL_STATES = ['fixed']
+        STATES = ['fixed']
 
         def _event_abc(self, _evalue, **_extra):
             pass
@@ -384,7 +408,7 @@ def test_enter_exit(circuit):
     """
     trace = []
     class TestFSM(redzed.FSM):
-        ALL_STATES = ["A", "B"]
+        STATES = ["A", "B"]
         EVENTS = [
             ["ab", ["A"], "B"],
             ]

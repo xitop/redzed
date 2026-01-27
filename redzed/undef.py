@@ -2,8 +2,8 @@
 The UNDEF singleton constant.
 - - - - - -
 Part of the redzed package.
-# Docs: https://redzed.readthedocs.io/en/latest/
-# Home: https://github.com/xitop/redzed/
+Docs: https://redzed.readthedocs.io/en/latest/
+Home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
