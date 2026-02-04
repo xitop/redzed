@@ -14,7 +14,7 @@ from collections.abc import Callable, Awaitable
 import typing as t
 
 import redzed
-from redzed.utils import BufferShutDown, cancel_shield, func_call_string, MsgSync, time_period
+from redzed.utils import BufferShutDown, cancel_shield, func_call_string, time_period
 from .validator import _Validate
 
 
@@ -30,9 +30,14 @@ class OutputFunc(redzed.Block):
             triggered_by: str|redzed.Block|redzed.Formula|redzed.UndefType = redzed.UNDEF,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._stop_value = stop_value
         self._func = func
-        self._parameters: list[tuple[str, bool]] = []    # item: (name, is_required)
+        self._shutdown = False
+        if stop_value is not redzed.UNDEF:
+            @redzed.stop_function
+            def stop_function_():
+                self._event_put({'evalue': stop_value})
+            stop_function_.__qualname__ += self.name
+            stop_function_.__name__ += self.name
         if triggered_by is not redzed.UNDEF:
             @redzed.triggered
             def trigger(value=triggered_by) -> None:
@@ -53,9 +58,11 @@ class OutputFunc(redzed.Block):
         self.log_debug2("output function returned: %r", result)
         return result
 
+    def rz_is_shut_down(self) -> bool:
+        return self._shutdown
+
     def rz_stop(self) -> None:
-        if self._stop_value is not redzed.UNDEF:
-            self._event_put({'evalue': self._stop_value})
+        self._shutdown = True
 
 
 class _Buffer(_Validate, redzed.Block):
@@ -65,9 +72,14 @@ class _Buffer(_Validate, redzed.Block):
             triggered_by: str|redzed.Block|redzed.Formula|redzed.UndefType = redzed.UNDEF,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        # the stop_value is stored already validated
-        self._stop_value = \
-            redzed.UNDEF if stop_value is redzed.UNDEF else self._validate(stop_value)
+        self._shutdown = False
+        if stop_value is not redzed.UNDEF:
+            stop_value = self._validate(stop_value)
+            @redzed.stop_function
+            def stop_function_():
+                self.rz_put_value(stop_value)
+            stop_function_.__qualname__ += self.name
+            stop_function_.__name__ += self.name
         if triggered_by is not redzed.UNDEF:
             @redzed.triggered
             def trigger(value=triggered_by) -> None:
@@ -80,6 +92,15 @@ class _Buffer(_Validate, redzed.Block):
         evalue = self._validate(evalue)
         self.rz_put_value(evalue)
 
+    def _event__get_size(self, _edata: redzed.EventData) -> int:
+        return self.rz_get_size()
+
+    def rz_is_shut_down(self) -> bool:
+        return self._shutdown
+
+    def rz_stop(self) -> None:
+        self._shutdown = True
+
     def rz_put_value(self, value: t.Any) -> None:
         raise NotImplementedError
 
@@ -88,6 +109,12 @@ class _Buffer(_Validate, redzed.Block):
 
     async def rz_buffer_get(self) -> t.Any:
         raise NotImplementedError
+
+    def rz_close(self) -> None:
+        if (size := self.rz_get_size()) == 1:
+            self.log_error("One value was not retrieved from buffer")
+        elif size > 1:
+            self.log_error("%d values were not retrieved from buffer", size)
 
 
 class QueueBuffer(_Buffer):
@@ -105,7 +132,6 @@ class QueueBuffer(_Buffer):
         self._queue: asyncio.Queue[t.Any] = queue_type(maxsize)
         # Queue.shutdown is available in Python 3.13, but we want to support 3.11+
         self._waiters = 0
-        self._shutdown = False
 
     def rz_put_value(self, value: t.Any) -> None:
         self._queue.put_nowait(value)
@@ -114,18 +140,10 @@ class QueueBuffer(_Buffer):
         """Get the number of items in the buffer."""
         return self._queue.qsize()
 
-    def _event__get_size(self, _edata: redzed.EventData) -> int:
-        return self.rz_get_size()
-
     def rz_stop(self) -> None:
-        waiters = self._waiters
-        if self._stop_value is not redzed.UNDEF:
-            self.rz_put_value(self._stop_value)
-            waiters -= 1
-        # unblock waiters
-        for _ in range(waiters):
+        super().rz_stop()
+        for _ in range(self._waiters):
             self.rz_put_value(redzed.UNDEF)
-        self._shutdown = True
 
     async def rz_buffer_get(self) -> t.Any:
         """
@@ -147,10 +165,6 @@ class QueueBuffer(_Buffer):
             raise BufferShutDown("The buffer was shut down")
         return value
 
-    def rz_close(self) -> None:
-        if (size := self._queue.qsize()) > 0:
-            self.log_warning("%d unprocessed item(s) left in the buffer", size)
-
 
 class MemoryBuffer(_Buffer):
     """
@@ -159,45 +173,47 @@ class MemoryBuffer(_Buffer):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._cell: MsgSync[t.Any] = MsgSync()
-        self._stop_pending = False
+        # allowed states:
+        #            _shutdown    value   has_value
+        # - has value: False,    not UNDEF, set
+        # - is empty:  False,    UNDEF,     cleared
+        # - draining:  True,     not UNDEF, set
+        # - shut down: True,     UNDEF,     set
+        self._value = redzed.UNDEF
+        self._has_value = asyncio.Event()
 
     def rz_get_size(self) -> int:
         """Get the number of items (0 or 1) in the buffer."""
-        has_data = self._cell.has_data() or self._cell.is_shutdown() and self._stop_pending
+        has_data = self._value is not redzed.UNDEF
         return 1 if has_data else 0
 
-    def _event__get_size(self, _edata: redzed.EventData) -> int:
-        return self.rz_get_size()
-
     def rz_put_value(self, value: t.Any) -> None:
-        self._cell.send(value)
+        if value is redzed.UNDEF:
+            raise ValueError(f"{self}: Cannot put UNDEF into the buffer")
+        self._value = value
+        self._has_value.set()
 
     def rz_stop(self) -> None:
         """Shut down"""
-        self._cell.shutdown()
-        self._stop_pending = self._stop_value is not redzed.UNDEF
+        super().rz_stop()
+        if not self._has_value.is_set():
+            assert self._value is redzed.UNDEF
+            self._has_value.set()   # unblock reader(s)
 
     async def rz_buffer_get(self) -> t.Any:
-        """
-        Remove and return an item from the memory cell.
-
-        When the buffer is empty:
-          - before shutdown wait
-          - after shutdown return the *stop_value* once (if defined),
-            then raise BufferShutDown
-        """
-        try:
-            return await self._cell.recv()
-        except BufferShutDown:
-            if not self._stop_pending:
-                raise
-            self._stop_pending = False
-            return self._stop_value
-
-    def rz_close(self) -> None:
-        if self._stop_pending:
-            self.log_error("The stop_value was not retrieved")
+        """Remove and return an item from the memory cell."""
+        while True:
+            await self._has_value.wait()
+            if self._value is redzed.UNDEF:
+                if self._shutdown:
+                    raise BufferShutDown("The buffer was shut down")
+                if not self._has_value.is_set():
+                    raise RuntimeError("BUG!: busy loop prevented")
+                continue
+            value, self._value = self._value, redzed.UNDEF
+            if not self._shutdown:
+                self._has_value.clear()
+            return value
 
 
 class OutputWorker(redzed.Block):
@@ -267,6 +283,7 @@ class OutputWorker(redzed.Block):
             if (running := sum(1 for worker in worker_tasks if not worker.done())) > 0:
                 self.log_warning("%d worker(s) did not stop", running)
             raise
+
 
 class OutputController(redzed.Block):
     """

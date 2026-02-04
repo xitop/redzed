@@ -52,12 +52,13 @@ Auxiliary blocks
   :param redzed.Block | str dest:
     destination block, an instance or its name
   :param float | str interval:
-    time interval between repetitions
+    default time interval between repetitions; can be overridden per event
   :param int | None count:
-    optional limit for repetition count, the original event is not counted
+    optional limit for repetition count, the original event is not counted.
+    This limit can be overridden as well.
 
-  :class:`!Repeat` is intended to repeat events destined to an output block
-  and thus to minimize the chance that some connected device will fail to act
+  :class:`!Repeat` is intended to repeat events destined to an output block.
+  Its purpose is to minimize the chance that some connected device will fail to act
   due to transient problems. The key requirement is that repeating must not
   change the outcome, i.e. multiple invocations must have the same effect
   as a single invocation. Such actions are called *idempotent*.
@@ -75,6 +76,13 @@ Auxiliary blocks
   subsequent repetitions are sent with ``'repeat': N`` where N is 1, 2, 3, ...
   This repeat value is also copied to the output, the initial output is 0.
 
+  **Overriding interval and count**
+
+  An event may include items ``'repeat_interval'`` and ``'repeat_count'`` with values
+  overriding the defaults set by arguments *interval* and *count*.
+  The interval must be a number (float). Strings with units are not accepted here.
+  These event data items will be removed from the event data before forwarding
+  the event to *dest*.
 
 .. class:: Timer(name, *, restartable=True, **fsm_kwargs, **block_kwargs)
 

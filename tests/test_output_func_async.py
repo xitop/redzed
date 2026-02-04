@@ -67,14 +67,15 @@ async def test_stop(circuit):
         (0, 2),
         (50, 6),
         (100, 4),
+        (100, 1),       # stop function runs before block stop
         (100, '--stop--'),
-        (100, 1),
         (100, 'END')
         ]
     await output_func(circuit, v2=2, stop_value=12, log=LOG)
 
 
-async def test_stop_value(circuit):
+@pytest.mark.parametrize("stop_function", [False, True])
+async def test_stop_value(circuit, stop_function):
     """Test disabled service after stop."""
     saved_arg = None
 
@@ -87,7 +88,13 @@ async def test_stop_value(circuit):
             out.event('put', x)
             assert saved_arg == x
 
-    out = redzed.OutputFunc("outf", func=save_arg, stop_value=99)
+    if stop_function:
+        out = redzed.OutputFunc("outf", func=save_arg)
+        @redzed.stop_function
+        def stop():
+            out.event('put', 99)
+    else:
+        out = redzed.OutputFunc("outf", func=save_arg, stop_value=99)
     await runtest(tester())
 
     assert saved_arg == 99

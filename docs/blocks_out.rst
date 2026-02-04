@@ -16,6 +16,35 @@ Outputs
   of seconds or as a :ref:`string with time units<Time durations with units>`.
 
 
+Stop functions
+==============
+
+A common requirement is that an application should leave the controlled systems
+or devices in a well-defined state after it terminates. This is achieved by sending
+appropriate values to output blocks during shutdown, so they are processed as last
+values before stopping. We call these values "stop values" and functions
+sending them are called "stop functions".
+
+The most common case is sending a single fixed stop value. The output blocks provide
+a convenience option *stop_value*  which creates a stop function automatically.
+
+An explicit stop function is needed only if the stop value is not known in advance
+or if a multiple values need to be sent.
+
+.. decorator:: stop_function
+
+  Register a stop function, i.e. a function that will be automatically run during
+  circuit shutdown in order to send stop values to output blocks. Please note
+  that by "output blocks" we mean the respective buffers if the blocks are asynchronous.
+
+Stop functions are called without arguments. Exceptions in stop functions are logged,
+but the shutdown will continue. When a stop function is called, triggers are already defunct
+and non-output blocks do not accept non-monitoring events. The stop function may
+check output values of all blocks using :meth:`Block.get`,
+send :ref:`monitoring events <Monitoring events>` to all blocks
+and, of course, send any events to output blocks.
+
+
 Sync outputs
 ============
 
@@ -32,10 +61,8 @@ Sync outputs
   :type validator: Callable[[Any], Any] | None
 
   :param Any stop_value:
-    If *stop_value* is given, it is used as an argument of a synthetic
-    event delivered to the block during the cleanup and processed as the
-    last item before stopping. This allows to leave the controlled process
-    in a well-defined state.
+    If *stop_value* is given, it is processed as the last value before stopping.
+    See the :ref:`stop functions <Stop functions>`.
 
   :param str | redzed.Block | redzed.Formula triggered_by:
 
@@ -93,6 +120,11 @@ e.g. switching an electric circuit on or off.
 
 Use a :class:`MemoryBuffer` with an :class:`OutputController`.
 
+.. caution::
+
+  In general, there are no warnings and no runtime errors for
+  buffers connected to output blocks in an illogical way.
+
 
 Output data validation
 ----------------------
@@ -131,13 +163,12 @@ Worker mode
   :type validator: Callable[[Any], Any] | None
 
   :param Any stop_value:
-    If defined, the ``stop_value`` is inserted into the buffer during shutdown
-    as the very last value. This allows to leave the controlled process
-    in a well-defined state.
+    If *stop_value* is given, it is processed as the last value before stopping.
+    See the :ref:`stop functions <Stop functions>`.
 
-    When this parameter is used, the :class:`OutputWorker` attached to this buffer
-    should be run with ``workers=1``, which is the default. With multiple workers,
-    the *stop_value* might be not the last processed value overall.
+    When this parameter or a stop function is used, the :class:`OutputWorker` attached
+    to this buffer should be run with ``workers=1``, which is the default.
+    With multiple workers, the *stop_value* might be not the last processed value overall.
 
   :param str | redzed.Block | redzed.Formula triggered_by:
 
@@ -198,7 +229,7 @@ Worker mode
 Controller mode
 ---------------
 
-.. class:: MemoryBuffer(name, validator=None, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
+.. class:: MemoryBuffer(name, *, validator=None, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
 
   Create a buffer holding only the last value. The buffer has
   an interface for an async output block. The output is unused

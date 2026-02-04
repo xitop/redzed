@@ -307,6 +307,16 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
   This is the final cleanup function for blocks that must stay
   active also during the shutdown phase, e.g. the output buffers.
 
+.. method:: Block.rz_is_shut_down() -> bool
+
+  Blocks reject all non-monitoring events after shutdown.
+  This method is called to check if this is the case.
+
+  The default implementation follows the circuit's state.
+  i.e. when the circuit shuts down, the block shuts down as well.
+  This default is appropriate for most blocks except output
+  blocks which shut down after :ref:`stop functions <Stop functions>`.
+
 
 7. Event handling
 =================
@@ -329,7 +339,7 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
     by dispatching it to the appropriate handler. Return the handler's exit value.
     :exc:`UnknownEvent` is raised if there is no handler for the *etype*.
     :exc:`CircuitShutDown` is raised if a non-monitoring event arrives after
-    circuit's shutdown.
+    block's shutdown - see :ref:`rz_is_shut_down`.
 
     The *evalue* is part of the *edata*. If it is given (i.e. not :const:`UNDEF`), it is inserted
     into *edata* as ``edata['evalue']``. It is accepted either as a positional or
@@ -351,7 +361,8 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
 .. exception:: CircuitShutDown
 
   This exception is subclassed from :exc:`!RuntimeError`. It is raised when
-  :meth:`Block.event` is called when the circuit is shutting down or closed.
+  :meth:`Block.event` is called during shut down. The exact moment when a block
+  starts to reject events depends on :meth:`Block.rz_is_shut_down`.
   :ref:`Monitoring events` are excluded from the check and are always accepted.
 
 

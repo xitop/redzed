@@ -13,7 +13,7 @@ import asyncio
 import typing as t
 
 import redzed
-from redzed.utils import MsgSync, time_period
+from redzed.utils import time_period
 
 
 class Repeat(redzed.Block):
@@ -27,20 +27,27 @@ class Repeat(redzed.Block):
             **kwargs
             ) -> None:
         self._dest = dest
-        self._interval = time_period(interval)
+        self._default_interval = time_period(interval)
         if count is not None and count < 0:
             # count = 0 (no repeating) is accepted
             raise ValueError("argument 'count' must not be negative")
-        self._count = count
-        self._sync: MsgSync[tuple[str, redzed.EventData]] = MsgSync()
-        self._warning_logged = False
+        self._default_count = count
+        self._got_event = False
+        self._new_event = asyncio.Event()
+        # current event
+        self._etype: str
+        self._edata: redzed.EventData
+        self._interval: float
+        self._count: int|None
         super().__init__(*args, **kwargs)
 
     def rz_pre_init(self) -> None:
         """Resolve destination block name."""
-        if not isinstance(dest := self.circuit.resolve_name(self._dest), redzed.Block):
-            raise TypeError(
-                f"{self}: {dest} is not a Block, but a Formula; cannot send events to it.")
+        dest = self.circuit.resolve_name(self._dest)
+        if isinstance(dest, redzed.Formula):
+            raise TypeError(f"{self}: {dest} is a Formula; cannot send events to it.")
+        if isinstance(dest, type(self)):
+            raise TypeError(f"{self}: {dest} is another Repeat block; this is not allowed")
         self._dest = dest
         self.circuit.create_service(self._repeater(), name=f"Event repeating task at {self}")
 
@@ -52,21 +59,30 @@ class Repeat(redzed.Block):
         repeat = 0      # prevent pylint warning
         while True:
             try:
-                etype, edata = await self._sync.recv(
-                    timeout=self._interval if repeating else None)
-                repeat = 0
+                async with asyncio.timeout(self._interval if repeating else None):
+                    await self._new_event.wait()
             except asyncio.TimeoutError:
+                pass
+            # getting a timeout does not necessarily mean the event was not set
+            if self._new_event.is_set():
+                self._new_event.clear()
+                repeat = 0
+            else:
                 repeat += 1
 
             if repeat > 0:  # skip the original event
                 self._set_output(repeat)
                 assert isinstance(self._dest, redzed.Block)    # @mypy: name resolved
-                self._dest.event(etype, **(edata | {'repeat': repeat}))
+                self._dest.event(self._etype, **(self._edata | {'repeat': repeat}))
             repeating = self._count is None or repeat < self._count
 
     def _default_event_handler(self, etype: str, edata: redzed.EventData) -> None:
         # send the original event synchronously
         self._set_output(0)
         assert isinstance(self._dest, redzed.Block)    # mypy: name is resolved
+        self._etype = etype
+        self._edata = edata
+        self._interval = edata.pop('repeat_interval', self._default_interval)
+        self._count = edata.pop('repeat_count', self._default_count)
         self._dest.event(etype, **(edata | {'repeat': 0}))
-        self._sync.send((etype, edata))
+        self._new_event.set()

@@ -7,10 +7,11 @@ Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
-__all__ = ['CircuitState', 'get_circuit', 'reset_circuit', 'run', 'unique_name']
+__all__ = [
+    'CircuitState', 'stop_function', 'get_circuit', 'reset_circuit', 'run', 'unique_name']
 
 import asyncio
-from collections.abc import Coroutine, Iterable, MutableMapping, Sequence
+from collections.abc import Callable, Coroutine, Iterable, MutableMapping, Sequence
 import contextlib
 import enum
 import itertools
@@ -63,6 +64,13 @@ def unique_name(prefix: str = 'auto') -> str:
     return get_circuit().rz_unique_name(prefix)
 
 
+_StopFunction: t.TypeAlias = Callable[[], t.Any]
+
+def stop_function(func: _StopFunction) -> _StopFunction:
+    get_circuit().rz_add_stop_function(func)
+    return func
+
+
 class CircuitState(enum.IntEnum):
     """
     Circuit state.
@@ -83,16 +91,16 @@ class _TerminateTaskGroup(Exception):
 
 
 @contextlib.contextmanager
-def error_debug(item: Block|Formula|Trigger, suppress_error: bool = False) -> t.Iterator[None]:
+def error_debug(exc_source: t.Any, suppress_error: bool = False) -> t.Iterator[None]:
     """Add a note to raised exception -or- log and suppress exception."""
     try:
         yield None
     except Exception as err:
         if not suppress_error:
-            err.add_note(f"This {type(err).__name__} occurred in {item}")
+            err.add_note(f"This {type(err).__name__} occurred in {exc_source}")
             raise
         # errors should be suppressed only during the shutdown & cleanup
-        _logger.error("[Circuit] %s: Suppressing %s: %s", item, type(err).__name__, err)
+        _logger.error("[Circuit] %s: Suppressing %s: %s", exc_source, type(err).__name__, err)
 
 
 class Circuit:
@@ -108,6 +116,7 @@ class Circuit:
         self._blocks: dict[str, Block|Formula] = {}
             # all Blocks and Formulas belonging to this circuit stored by name
         self._triggers: list[Trigger] = []      # all triggers belonging to this circuit
+        self._stops: list[_StopFunction] = []
         self._errors: list[Exception] = []      # exceptions occurred in the runner
         self.rz_persistent_dict: MutableMapping[str, t.Any]|None = None
             # persistent state data back-end
@@ -168,6 +177,9 @@ class Circuit:
             _logger.debug("[Circuit] %s. Processing %s", msg, "; ".join(parts))
 
     # --- circuit components storage ---
+
+    def rz_add_stop_function(self, func: _StopFunction) -> None:
+        self._stops.append(func)
 
     def rz_add_item(self, item: Block|Formula|Trigger) -> None:
         """Add a circuit item."""
@@ -279,7 +291,7 @@ class Circuit:
 
     def _check_not_started(self) -> None:
         """Raise an error if the circuit runner has started already."""
-        if self._state == CircuitState.CLOSED:
+        if self._state is CircuitState.CLOSED:
             # A circuit may be closed before start (see shutdown),
             # let's use this message instead of the one below.
             raise RuntimeError("The circuit was closed")
@@ -287,7 +299,7 @@ class Circuit:
         if self._state > CircuitState.INIT_CIRCUIT:
             raise RuntimeError("Not allowed after the start")
 
-    def after_shutdown(self) -> bool:
+    def is_shut_down(self) -> bool:
         """Test if we are past the shutdown() call."""
         return self._state >= CircuitState.SHUTDOWN
 
@@ -444,11 +456,12 @@ class Circuit:
     async def _runner_init(self) -> None:
         """Run the circuit during the initialization phase."""
         self._set_state(CircuitState.INIT_CIRCUIT)
+        # ensure a logging handler (won't work in UNDER_CONSTRUCTION level)
+        set_debug_level(get_debug_level())
         await asyncio.sleep(0)  # allow reached_state() synchronization
-        if self.after_shutdown():
+        if self.is_shut_down():
             # It looks like a supporting task has failed immediately after the start
             return
-        set_debug_level(get_debug_level())  # will check the existence of a logging handler
 
         pe_blocks = [blk for blk in self.get_items(Block) if blk.has_method('rz_pre_init')]
         pe_formulas = list(self.get_items(Formula))
@@ -497,14 +510,24 @@ class Circuit:
                     self.save_persistent_state(blk, now)
 
         stop_triggers = list(self.get_items(Trigger))
+        if stop_triggers:
+            self._log_debug2_blocks("Stopping triggers", stop_triggers)
+            for tstop in stop_triggers:
+                with error_debug(tstop, suppress_error=True):
+                    tstop.rz_stop()
+
+        if self._stops:
+            self.log_debug2("Running %d stop function(s)", len(self._stops))
+            for fstop in self._stops:
+                with error_debug(f"Stop function {fstop.__name__}()", suppress_error=True):
+                    fstop()
+
         stop_blocks = [blk for blk in self.get_items(Block) if blk.has_method('rz_stop')]
         if stop_blocks:
-            self._log_debug2_blocks("Stopping (sync)", stop_triggers, stop_blocks)
-            for stop in itertools.chain(stop_triggers, stop_blocks):
-                assert isinstance(stop, (Block, Trigger))       # @mypy
-                with error_debug(stop, suppress_error=True):
-                    # union-attr: checked with .has_method()
-                    stop.rz_stop()  # type: ignore[union-attr]
+            self._log_debug2_blocks("Stopping (sync)", stop_blocks)
+            for bstop in stop_blocks:
+                with error_debug(bstop, suppress_error=True):
+                    bstop.rz_stop()
 
         if self._auto_cancel_tasks:
             self.log_debug2("Cancelling %d service task(s)")
@@ -544,10 +567,6 @@ class Circuit:
 
         When the runner terminates, it cannot be invoked again.
         """
-        if self._state == CircuitState.CLOSED:
-            raise RuntimeError("Cannot restart a closed circuit.")
-        if self._state != CircuitState.UNDER_CONSTRUCTION:
-            raise RuntimeError("The circuit is already running.")
         if not self._blocks:
             raise RuntimeError("The circuit is empty")
         if tasks_are_eager():
@@ -561,7 +580,7 @@ class Circuit:
                 self.abort(err)
             else:
                 # There might be errors reported with abort().
-                # In such case the state has been set to SHUTDOWN.
+                # In such case the state has been set to SHUTDOWN or even CLOSED.
                 # _set_state(RUNNING) will be silently ignored.
                 self._set_state(CircuitState.RUNNING)
             # wait until cancelled from the task group; possible causes:
@@ -573,17 +592,18 @@ class Circuit:
             # will be re-raised at the end if there won't be other exceptions
             pass
         # cancellation causes 2 and 3 do not modify the state
-        if not self.after_shutdown():
+        if not self.is_shut_down():
             self._set_state(CircuitState.SHUTDOWN)
             await asyncio.sleep(0)
-        try:
-            await self._runner_shutdown()
-        except Exception as err:
-            # If an exception is propagated from _runner_shutdown, it is probably a bug.
-            # Calling abort is not necessary when shutting down, but the call will log
-            # and register the exception to be included in the final ExceptionGroup.
-            self.abort(err)
-        self._set_state(CircuitState.CLOSED)
+        if self._state < CircuitState.CLOSED:
+            try:
+                await self._runner_shutdown()
+            except Exception as err:
+                # If an exception is propagated from _runner_shutdown, it is probably a bug.
+                # Calling abort is not necessary when shutting down, but the call will log
+                # and register the exception to be included in the final ExceptionGroup.
+                self.abort(err)
+            self._set_state(CircuitState.CLOSED)
 
         if self._errors:
             raise ExceptionGroup("_runner_core() errors", self._errors)
@@ -605,7 +625,7 @@ class Circuit:
             # the same error may be reported from several places
             return
         self._errors.append(err)
-        if self.after_shutdown():
+        if self.is_shut_down():
             self.log_error("Unhandled error during shutdown: %r", err)
         else:
             self.log_warning("Aborting due to an exception: %r", err)
@@ -617,9 +637,9 @@ class Circuit:
 
         Prevent the runner from starting if it wasn't started yet.
         """
-        if self.after_shutdown():
+        if self.is_shut_down():
             return
-        if self._state == CircuitState.UNDER_CONSTRUCTION:
+        if self._state <= CircuitState.INIT_CIRCUIT:
             self._set_state(CircuitState.CLOSED)
             return
         self._set_state(CircuitState.SHUTDOWN)
@@ -656,7 +676,7 @@ class Circuit:
         try:
             await coro  # return value of a service is ignored
         except asyncio.CancelledError:
-            if self.after_shutdown():
+            if self.is_shut_down():
                 self.log_debug1("%s was cancelled", longname)
                 raise
             err = RuntimeError(f"{longname} was cancelled before shutdown")
@@ -666,7 +686,7 @@ class Circuit:
             err.add_note(f"Error occurred in {longname}")
             self.abort(err)
             raise
-        if self.after_shutdown():
+        if self.is_shut_down():
             self.log_debug1("%s terminated", longname)
             return
         exc = RuntimeError(f"{longname} terminated before shutdown")
@@ -680,7 +700,7 @@ class Circuit:
             **task_kwargs
             ) -> asyncio.Task[None]:
         """Create a service task for the circuit."""
-        if self.after_shutdown():
+        if self.is_shut_down():
             raise RuntimeError("Cannot create a service after shutdown")
         # Python 3.12 and 3.13 only: Eager tasks start to run before their name is set.
         # As a workaround we tell the watchdog wrapper the name.
@@ -734,8 +754,13 @@ async def run(*coroutines: Coroutine[t.Any, t.Any, t.Any], catch_sigterm: bool =
 
     If errors occur, raise an exception group with all exceptions.
     """
+    circuit = get_circuit()
+    state = circuit.get_state()
+    if state is CircuitState.CLOSED:
+        raise RuntimeError("Cannot restart a closed circuit.")
+    if state is not CircuitState.UNDER_CONSTRUCTION:
+        raise RuntimeError("The circuit is already running.")
     with TerminatingSignal(signal.SIGTERM) if catch_sigterm else contextlib.nullcontext():
-        circuit = get_circuit()
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(circuit.rz_runner(), name="Circuit runner")

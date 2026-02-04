@@ -22,7 +22,8 @@ async def output_ctrl(
         circuit, *,
         log,
         t12=0.01, t23=0.01,
-        test_error=False, rest_time=0.04, **kwargs):
+        test_error=False, rest_time=0.04,
+        stop_value=redzed.UNDEF, stop_function=False, **kwargs):
 
     async def work_80(arg):
         logger.log(f'start {arg}')
@@ -39,8 +40,13 @@ async def output_ctrl(
         return f'ok {arg}'
 
     inp = redzed.Memory('inp', initial='i1')
-    buff = redzed.MemoryBuffer(
-        'buff', triggered_by='inp', stop_value=kwargs.pop('stop_value', redzed.UNDEF))
+    if stop_function:
+        buff = redzed.MemoryBuffer('buff', triggered_by='inp')
+        @redzed.stop_function
+        def stop():
+            buff.event('put', stop_value)
+    else:
+        buff = redzed.MemoryBuffer('buff', triggered_by='inp', stop_value=stop_value)
     redzed.OutputController(
         'out', aw_func=work_80, buffer=buff, rest_time=rest_time, **kwargs)
     logger = TimeLogger('logger', mstop=True)
@@ -130,7 +136,8 @@ async def test_rest_time_after_error2(circuit):
         await output_ctrl(circuit, t12=0.1, test_error=True, log=LOG)
 
 
-async def test_stop_value(circuit):
+@pytest.mark.parametrize("stop_function", [False, True])
+async def test_stop_value(circuit, stop_function):
     """Test the stop value."""
     LOG = [
         (0, 'start i1'),
@@ -144,7 +151,8 @@ async def test_stop_value(circuit):
         (140, 'stop CLEANUP'),
         (140, 'END')
         ]
-    await output_ctrl(circuit, stop_value='CLEANUP', rest_time=0, log=LOG)
+    await output_ctrl(
+        circuit, stop_value='CLEANUP', stop_function=stop_function, rest_time=0, log=LOG)
 
 
 async def test_rest_time_too_long(circuit):

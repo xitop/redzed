@@ -21,7 +21,8 @@ Grp = pytest.RaisesGroup
 
 async def output_worker(
         circuit, *,
-        t23=0.05, log, stop_value=redzed.UNDEF, test_error=False, **kwargs):
+        t23=0.05, log, test_error=False, stop_value=redzed.UNDEF, stop_function=False,
+        **kwargs):
 
     async def wait70(arg):
         logger.log(f'start {arg}')
@@ -34,7 +35,14 @@ async def output_worker(
 
     logger = TimeLogger('logger', mstop=True)
     inp = redzed.Memory('inp', initial='i1')
-    buff = redzed.QueueBuffer('buff', triggered_by='inp', stop_value=stop_value)
+    if stop_function:
+        buff = redzed.QueueBuffer('buff', triggered_by='inp')
+        @redzed.stop_function
+        def stop():
+            buff.event('put', stop_value)
+    else:
+        buff = redzed.QueueBuffer('buff', triggered_by='inp', stop_value=stop_value)
+
     redzed.OutputWorker('out', aw_func=wait70, buffer=buff, **kwargs)
 
     async def tester():
@@ -123,7 +131,8 @@ async def test_worker_error(circuit):
         await output_worker(circuit, test_error=True, log=LOG)
 
 
-async def test_stop_value(circuit):
+@pytest.mark.parametrize("stop_function", [False, True])
+async def test_stop_value(circuit, stop_function):
     """Test the stop value in start mode."""
     LOG = [
         (0, 'start i1'),
@@ -137,8 +146,7 @@ async def test_stop_value(circuit):
         (280, 'stop CLEANUP'),
         (280, 'END')
         ]
-    await output_worker(
-        circuit, stop_value='CLEANUP', log=LOG)
+    await output_worker(circuit, stop_value='CLEANUP', stop_function=stop_function, log=LOG)
 
 
 async def test_threads(circuit):

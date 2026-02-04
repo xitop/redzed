@@ -6,6 +6,16 @@ Changelog
 
 Version numbers are based on the release date (Y.M.D).
 
+
+26.2.4 (beta)
+=============
+
+New features, improvements:
+
+- Output blocks: introducing :ref:`stop functions <Stop functions>`
+- :class:`Repeat`: settings may be modified dynamically
+
+
 26.1.28 (alpha)
 ===============
 

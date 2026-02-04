@@ -225,6 +225,9 @@ class Block(BlockOrFormula):
         # pylint: disable-next=no-member
         return self.rz_export_state()         # type: ignore[attr-defined]
 
+    def rz_is_shut_down(self) -> bool:
+        return self.circuit.is_shut_down()
+
     def event(self, etype: str, /, evalue: t.Any = UNDEF, **edata: t.Any) -> t.Any:
         """
         An entry point for events.
@@ -232,13 +235,13 @@ class Block(BlockOrFormula):
         Call the specialized _event_ETYPE() method if it exists.
         Otherwise call the _default_event_handler() as the last resort.
         """
-        if self.circuit.after_shutdown() and not etype.startswith('_get_'):
+        check_identifier(etype, "Event type")
+        if not etype.startswith('_get_') and self.rz_is_shut_down():
             raise CircuitShutDown("The circuit was shut down")
 
         if evalue is not UNDEF:
             edata['evalue'] = evalue
 
-        check_identifier(etype, "Event type")
         if get_debug_level() >= 1:
             if not edata:
                 self.log_debug("Got event '%s'", etype)
