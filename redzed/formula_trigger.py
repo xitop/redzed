@@ -85,9 +85,10 @@ class _ExtFunction:
         if UNDEF in kwargs.values():
             assert self._owner.circuit.get_state() < circuit.CircuitState.RUNNING
             if get_debug_level() >= 2:
-                undef = next(iter(param for param, value in kwargs.items() if value is UNDEF))
+                undef_params = (param for param, value in kwargs.items() if value is UNDEF)
                 _logger.debug(
-                    "%s: NOT calling the function, because '%s' is UNDEF", self._owner, undef)
+                    "%s: NOT calling the function; UNDEF: '%s'",
+                    self._owner, ', '.join(undef_params))
             return UNDEF
         if get_debug_level() >= 1:
             _logger.debug(
@@ -197,5 +198,5 @@ class Formula(base_block.BlockOrFormula):
 def formula(func: _FUNC) -> _FUNC:
     """@formula() creates a Formula block with the decorated function."""
     comment = '' if func.__doc__ is None else inspect.cleandoc(func.__doc__).partition('\n')[0]
-    Formula(func.__name__, func=func, comment=comment)
+    Formula(func.__name__.removeprefix('_'), func=func, comment=comment)
     return func

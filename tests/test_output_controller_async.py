@@ -21,10 +21,9 @@ Grp = pytest.RaisesGroup
 async def output_ctrl(
         circuit, *,
         log,
-        t12=0.01, t23=0.01,
-        test_error=False, rest_time=0.04,
-        stop_value=redzed.UNDEF, stop_function=False, **kwargs):
-
+        t12=0.01, t23=0.01, test_error=False, rest_time=0.04,
+        stop_value=redzed.UNDEF, stop_function=False, attach=False,
+        **kwargs):
     async def work_80(arg):
         logger.log(f'start {arg}')
         if test_error:
@@ -47,8 +46,16 @@ async def output_ctrl(
             buff.event('put', stop_value)
     else:
         buff = redzed.MemoryBuffer('buff', triggered_by='inp', stop_value=stop_value)
-    redzed.OutputController(
-        'out', aw_func=work_80, buffer=buff, rest_time=rest_time, **kwargs)
+
+    if attach:
+        buff2 = buff.attach_output(aw_func=work_80, rest_time=rest_time, **kwargs)
+        assert buff2 == buff
+        assert list(circuit.get_items(redzed.OutputController)) \
+            == [circuit.resolve_name('buff_io')]
+    else:
+        redzed.OutputController(
+            'out', aw_func=work_80, buffer=buff, rest_time=rest_time, **kwargs)
+
     logger = TimeLogger('logger', mstop=True)
 
     async def tester():
@@ -65,7 +72,8 @@ async def output_ctrl(
         logger.compare(log)
 
 
-async def test_controller(circuit):
+@pytest.mark.parametrize('attach', [False, True])
+async def test_controller(circuit, attach):
     LOG = [
         (0, 'start i1'),
         (30, 'cancel i1'), # i2 cancels i1
@@ -79,10 +87,11 @@ async def test_controller(circuit):
         # 310: end of the rest time after i3
         (310, 'END')
         ]
-    await output_ctrl(circuit, t12=0.03, t23=0.13, log=LOG)
+    await output_ctrl(circuit, t12=0.03, t23=0.13, log=LOG, attach=attach)
 
 
-async def test_stop_timeout(circuit):
+@pytest.mark.parametrize('attach', [False, True])
+async def test_stop_timeout(circuit, attach):
     LOG = [
         (0, 'start i1'),
         (80, 'stop i1'),
@@ -93,10 +102,11 @@ async def test_stop_timeout(circuit):
         (195, 'cancel i3'), # timed out -> cancel task -> start rest_time 40ms
         (225, 'END')
         ]
-    await output_ctrl(circuit, t12=0.1, stop_timeout=0.045, log=LOG)
+    await output_ctrl(circuit, t12=0.1, stop_timeout=0.045, log=LOG, attach=attach)
 
 
-async def test_no_rest_time(circuit):
+@pytest.mark.parametrize('attach', [False, True])
+async def test_no_rest_time(circuit, attach):
     LOG = [
         (0, 'start i1'),
         (10, 'cancel i1'),
@@ -107,7 +117,7 @@ async def test_no_rest_time(circuit):
         (190, 'stop i3'),
         (190, 'END')
         ]
-    await output_ctrl(circuit, t23=0.1, rest_time=0, log=LOG)
+    await output_ctrl(circuit, t23=0.1, rest_time=0, log=LOG, attach=attach)
 
 
 async def test_rest_time_after_error1(circuit):

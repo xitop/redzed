@@ -5,6 +5,7 @@ Test the Repeat block.
 # pylint: disable=missing-class-docstring
 
 import asyncio
+import itertools
 
 import pytest
 
@@ -131,6 +132,41 @@ async def test_output(circuit):
         await asyncio.sleep(0.11)
 
     await runtest(tester())
+
+
+@pytest.mark.parametrize('jitter, count', [(25, 11), (50, 9)])
+async def test_jitter(circuit, jitter, count):
+    """Test if jitter_pct works."""
+    TICK_MS = 20
+
+    class LoggerBlock(redzed.Block):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._log = []
+
+        def get_ms(self):
+            """delays rounded to milliseconds"""
+            return [int((b-a)*1000 + 0.5) for a, b in itertools.pairwise(self._log)]
+
+        def _event_EV(self, edata):
+            self._log.append(circuit.runtime())
+            if edata['repeat'] == count:
+                circuit.shutdown()
+
+    logger = LoggerBlock('logger')
+    rpt = redzed.Repeat(
+        'rpt', dest=logger, interval=TICK_MS/1000, count=count, jitter_pct=jitter)
+
+    async def tester():
+        rpt.event('EV')
+        await asyncio.sleep(1)  # will be cancelled
+
+    await runtest(tester())
+    intervals = logger.get_ms()
+    assert len(intervals) == count
+    delta = 1 - (-TICK_MS * jitter) // 100  # round up without math.ceil, +1 for overhead
+    assert all(TICK_MS - delta < d <= TICK_MS + delta for d in intervals)
+    assert len(set(intervals)) > 3, "please repeat the test"    # false positive rate < 0.01%
 
 
 async def test_loop1(circuit):

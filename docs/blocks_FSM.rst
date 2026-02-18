@@ -81,8 +81,8 @@ A new FSM is type created by subclassing the base class.
 
   Subclasses must define two class attributes:
 
-  - :obj:`FSM.STATES`
-  - :obj:`FSM.EVENTS`
+  - :attr:`FSM.STATES`
+  - :attr:`FSM.EVENTS`
 
   and may define these hooks:
 
@@ -205,11 +205,11 @@ highest priority to the lowest:
    caused the transfer to a timed state
 2. result of :meth:`FSM.duration_TSTATE` call
 3. duration set in the instance with a *t_TSTATE* :ref:`parameter <FSM parameters>`
-4. default set in the :data:`FSM.TIMED_STATES` table
+4. default set in the :attr:`FSM.STATES` table
 
 If none of these sources produces a valid duration, an exception is raised.
 
-When the timer expires, the *next_state* (as defined in the :data:`FSM.TIMED_STATES` table)
+When the timer expires, the *next_state* (as defined in the :attr:`FSM.STATES` table)
 is entered. If the timed state is exited before the timer expiration, the timer is cancelled.
 This means that a transition from a timed state to the same state restarts
 the timer. If this is unwanted, disallow the transition.
@@ -285,7 +285,7 @@ Call arguments
 ++++++++++++++
 
 Hooks are called either with zero or with exactly one argument depending on
-how they were defined. The `self` parameter in methods is disregarded.
+how they were defined. The `self` parameter in methods is not counted.
 The parameter must be positional. i.e. not keyword-only,
 nor :abbr:`variadic (*args or **kwargs)`.
 
@@ -453,7 +453,7 @@ from the :class:`FSM` class.
 state and event names.
 
 - ``t_TSTATE=duration``
-    See: :obj:`FSM.TIMED_STATES`
+    See: :attr:`FSM.STATES`
 
 - ``cond_EVENT=function``
     (sequence of functions is also accepted, e.g. ``cond_EVENT=[func1, func2, ... ]``)
@@ -468,7 +468,7 @@ state and event names.
 
 - ``initial=...``
     This parameter sets the initial FSM state. Default is the first state
-    listed in :obj:`FSM.STATES`. The *initial* argument also controls
+    listed in :attr:`FSM.STATES`. The *initial* argument also controls
     the persistent state which can be enabled using :class:`RestoreState`.
 
     See: :ref:`Block initializers <Initializers>`

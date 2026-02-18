@@ -10,6 +10,7 @@ from __future__ import annotations
 __all__ = ['Repeat']
 
 import asyncio
+import random
 import typing as t
 
 import redzed
@@ -24,6 +25,7 @@ class Repeat(redzed.Block):
     def __init__(
             self, *args,
             dest: str|redzed.Block, interval: float|str, count: int|None = None,
+            jitter_pct: float = 0.0,
             **kwargs
             ) -> None:
         self._dest = dest
@@ -32,7 +34,14 @@ class Repeat(redzed.Block):
             # count = 0 (no repeating) is accepted
             raise ValueError("argument 'count' must not be negative")
         self._default_count = count
-        self._got_event = False
+        if jitter_pct == 0.0:
+            self._jitter = None
+        else:
+            if not 0.0 < jitter_pct <= 50.0:
+                raise ValueError(
+                    "Argument jitter_pct (percentage) must be between 0 and 50, "
+                    + f"got {jitter_pct}")
+            self._jitter = (1 - jitter_pct/100.0, 1 + jitter_pct/100.0)
         self._new_event = asyncio.Event()
         # current event
         self._etype: str
@@ -59,7 +68,13 @@ class Repeat(redzed.Block):
         repeat = 0      # prevent pylint warning
         while True:
             try:
-                async with asyncio.timeout(self._interval if repeating else None):
+                if repeating:
+                    interval = self._interval
+                    if self._jitter is not None:
+                        interval *= random.uniform(*self._jitter)
+                else:
+                    interval = None
+                async with asyncio.timeout(interval):
                     await self._new_event.wait()
             except asyncio.TimeoutError:
                 pass

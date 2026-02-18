@@ -21,7 +21,8 @@ Grp = pytest.RaisesGroup
 
 async def output_worker(
         circuit, *,
-        t23=0.05, log, test_error=False, stop_value=redzed.UNDEF, stop_function=False,
+        t23=0.05, log, test_error=False,
+        stop_value=redzed.UNDEF, stop_function=False, attach=False,
         **kwargs):
 
     async def wait70(arg):
@@ -43,7 +44,13 @@ async def output_worker(
     else:
         buff = redzed.QueueBuffer('buff', triggered_by='inp', stop_value=stop_value)
 
-    redzed.OutputWorker('out', aw_func=wait70, buffer=buff, **kwargs)
+    if attach:
+        buff2 = buff.attach_output(aw_func=wait70, **kwargs)
+        assert buff2 == buff
+        assert list(circuit.get_items(redzed.OutputWorker)) \
+            == [circuit.resolve_name('buff_io')]
+    else:
+        redzed.OutputWorker('out', aw_func=wait70, buffer=buff, **kwargs)
 
     async def tester():
         """
@@ -68,7 +75,8 @@ async def output_worker(
         logger.compare(log)
 
 
-async def test_1_worker(circuit):
+@pytest.mark.parametrize('attach', [False, True])
+async def test_1_worker(circuit, attach):
     """Test basic QueueBuffer function."""
     LOG = [
         (0, 'start i1'),
@@ -82,10 +90,11 @@ async def test_1_worker(circuit):
         (210, 'stop i3'),
         (210, 'END')
         ]
-    await output_worker(circuit, log=LOG)
+    await output_worker(circuit, log=LOG, attach=attach)
 
 
-async def test_2_workers(circuit):
+@pytest.mark.parametrize('attach', [False, True])
+async def test_2_workers(circuit, attach):
     """Test 2 workers."""
     LOG = [
         (0, 'start i1'),    # worker 1
@@ -99,10 +108,11 @@ async def test_2_workers(circuit):
         (160, 'stop i3'),
         (160, 'END')
         ]
-    await output_worker(circuit, workers=2, log=LOG)
+    await output_worker(circuit, workers=2, log=LOG, attach=attach)
 
 
-async def test_3_workers(circuit):
+@pytest.mark.parametrize('attach', [False, True])
+async def test_3_workers(circuit, attach):
     """Test 2 workers."""
     LOG = [
         (0, 'start i1'),    # worker 1
@@ -116,7 +126,7 @@ async def test_3_workers(circuit):
         (130, 'stop i3'),
         (130, 'END')
         ]
-    await output_worker(circuit, t23=0.02, workers=3, log=LOG)
+    await output_worker(circuit, t23=0.02, workers=3, log=LOG, attach=attach)
 
 
 async def test_worker_error(circuit):

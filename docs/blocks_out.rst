@@ -48,7 +48,7 @@ and, of course, send any events to output blocks.
 Sync outputs
 ============
 
-.. class:: OutputFunc(name, *, func, validator=None, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
+.. class:: OutputFunc(name, *, func, validator=None, stop_value=redzed.UNDEF, triggered_by=None, **block_kwargs)
 
   Call the function *func* when an ``'put'`` event arrives.
   The output of an :class:`!OutputFunc` block is always :const:`None`.
@@ -64,11 +64,11 @@ Sync outputs
     If *stop_value* is given, it is processed as the last value before stopping.
     See the :ref:`stop functions <Stop functions>`.
 
-  :param str | redzed.Block | redzed.Formula triggered_by:
+  :param str | redzed.Block | redzed.Formula | None triggered_by:
 
-    Convenience option. Create a :class:`Trigger` sending the output of *triggered_by*
-    to this output block via ``'put'`` events. The block or formula can be given
-    by its name.
+    Convenience option. If not :const:`None`, create a :class:`Trigger` sending
+    the output of *triggered_by* to this output block via ``'put'`` events.
+    The block or formula can be given by its name.
 
   Events:
     **'put'**
@@ -92,8 +92,8 @@ is a typical example of blocking I/O.
 
 CPU bound operations are best run in a separate process. We won't go into
 details, because output functions are not CPU bound. If you find this topic
-interesting, search keywords are: "Python :abbr:`GIL (Global Interpreter Lock)`"
-and "Python free threading".
+interesting, suggested search keywords are: "Python multiprocessing",
+Python :abbr:`GIL (Global Interpreter Lock)`" and "Python free threading".
 
 Slow I/O usually has its native async API. Slow I/O without an async API
 can be run in a separate thread; see the example in :class:`OutputWorker`.
@@ -122,8 +122,8 @@ Use a :class:`MemoryBuffer` with an :class:`OutputController`.
 
 .. caution::
 
-  In general, there are no warnings and no runtime errors for
-  buffers connected to output blocks in an illogical way.
+  In general, there are no warnings and no runtime errors when
+  output blocks are attached to buffers in a nonsensical way.
 
 
 Output data validation
@@ -143,7 +143,7 @@ The main use-case here is the preprocessing.
 Worker mode
 -----------
 
-.. class:: QueueBuffer(name, *, maxsize=0, priority_queue=False, validator=None, stop_value=redzed.UNDEF, triggered_by=redzed.UNDEF, **block_kwargs)
+.. class:: QueueBuffer(name, *, maxsize=0, priority_queue=False, validator=None, stop_value=redzed.UNDEF, triggered_by=None, **block_kwargs)
 
   Create a :abbr:`queue (FIFO = First In, First Out)` buffer
   with an interface for an async output block. The output
@@ -170,10 +170,11 @@ Worker mode
     to this buffer should be run with ``workers=1``, which is the default.
     With multiple workers, the *stop_value* might be not the last processed value overall.
 
-  :param str | redzed.Block | redzed.Formula triggered_by:
+  :param str | redzed.Block | redzed.Formula | None triggered_by:
 
-    Convenience option. Create a :class:`Trigger` sending the output of *triggered_by*
-    to this buffer via ``'put'`` events. The block or formula can be given by its name.
+    Convenience option. If not :const:`None`, create a :class:`Trigger` sending
+    the output of *triggered_by* to this buffer via ``'put'`` events.
+    The block or formula can be given by its name.
 
   Events:
     **'put'**
@@ -187,6 +188,22 @@ Worker mode
       Usage: ``size = queue_buffer.event('_get_size')``.
       Return the number of items in the buffer.
 
+  .. method:: attach_output(output = OutputWorker, **output_kwargs)
+
+    Convenience option. Create an output block of type *output* that will fetch
+    data from this buffer. The default block type is :class:`OutputWorker`.
+    The output block will be created with *output_kwargs* arguments;
+    please note:
+
+    - By default, the name will be derived from the buffer's name by appending
+      a short ``"_io"`` suffix. Use ``name=...`` to set the name explicitly.
+    - By default, the comment will be copied from the buffer.
+      Use ``comment=...`` to override.
+    - The *buffer* argument will be set automatically. Do not include ``"buffer"``
+      in *output_kwargs*.
+
+    This method returns *self*, i.e. the buffer object. If need be,
+    the output block object can be looked up by name with :meth:`Circuit.resolve_name`.
 
 .. class:: OutputWorker(name, *, aw_func, buffer, workers=1, stop_timeout=..., **block_kwargs)
 
@@ -259,6 +276,11 @@ Controller mode
       Usage: ``size = memory_buffer.event('_get_size')``.
       Return the number of items in the buffer which is either 0 or 1.
 
+  .. method:: attach_output(output = OutputController, **output_kwargs)
+
+    This method is identical to :meth:`QueueBuffer.attach_output`,
+    except that the default output block type is :class:`OutputController`.
+
 
 .. class:: OutputController(name, *, aw_func, buffer, rest_time=0.0, stop_timeout=..., **block_kwargs)
 
@@ -268,7 +290,7 @@ Controller mode
 
   :param buffer:
     A data buffer; :class:`MemoryBuffer` is required for proper functioning.
-    Only one :class:`!OutputController` should be connected to one :class:`!MemoryBuffer`.
+    Only one :class:`!OutputController` should be attached to one :class:`!MemoryBuffer`.
 
   :param aw_func:
 

@@ -125,48 +125,36 @@ async def test_undef(circuit):
     logger.compare(LOG)
 
 
-async def test_counter_1(circuit):
-    """Test the output counter."""
+@pytest.mark.parametrize("opt_trigger", [False, True])
+async def test_always_trigger(circuit, opt_trigger):
+    """Test always_trigger."""
     n = -1
     def acq():
         nonlocal n
         n += 1
-        return n*5
+        return n // 3
 
     logger = TimeLogger('logger', mstop=True)
-    redzed.DataPoll('dp', func=acq, output_counter=True, interval=0.02)
+    redzed.DataPoll('dp', func=acq, always_trigger=opt_trigger, interval=0.02)
     @redzed.triggered
     def _to_logger(dp):
         logger.log(dp)
     await runtest(sleep=0.11)
 
-    LOG = [(n*20, (n*5, n)) for n in range(6)] + [(110, "--stop--")]
-    logger.compare(LOG)
+    LOGT = [
+        (0,  0),
+        (20, 0),
+        (40, 0),
+        (60, 1),
+        (80, 1),
+        (100, 1),
+        (110, "--stop--")]
+    LOGNT = [
+        (0,  0),
+        (60, 1),
+        (110, "--stop--")]
 
-
-@pytest.mark.parametrize("counter", [False, True])
-async def test_counter_2(circuit, counter):
-    """Test the counter with UNDEF and repeated value."""
-    logger = TimeLogger('logger', triggered_by='dp')
-    redzed.DataPoll(
-        'dp',
-        func=_data_source("A", "B", redzed.UNDEF, "C", "C", "D"),
-        output_counter=counter,
-        interval=0.02)
-    await runtest(sleep=0.11)
-
-    LOG_C = [
-        (0, ("A", 0)),
-        (20, ("B", 1)),
-        # (40, (???))   missing, no data
-        (60, ("C", 2)),
-        (80, ("C", 3)),
-        (100, ("D", 4)),
-    ]
-
-    LOG_NC = [(0, "A"), (20, "B"), (60, "C"), (100, "D")]
-
-    logger.compare(LOG_C if counter else LOG_NC)
+    logger.compare(LOGT if opt_trigger else LOGNT)
 
 
 @pytest.mark.parametrize("failures", [0, 1, 3, 5])
@@ -188,7 +176,7 @@ async def test_abort(circuit, failures):
 
     if failures == 0 or failures >= 5:
         await runtest(sleep=0.32)
-        assert n == 16          # first value 1 + 15 polling cycles,
+        assert n == 16, "please repeat"     # first value 1 + 15 polling cycles,
         assert cnt == n - 5     # 5 missing
     else:
         with Grp(Exc(RuntimeError, match="No data")):

@@ -19,7 +19,7 @@ async def test_decorartor(circuit):
         return v1 and v2
 
     @redzed.formula
-    def frml(v1, v2):
+    def _frml(v1, v2):
         return v1 or v2
 
     formulas = list(circuit.get_items(redzed.Formula))

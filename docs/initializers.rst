@@ -46,7 +46,7 @@ Initializers produce a value that is in turn used to initialize the block
 which had the initializer included in its *initial* argument.
 Failures (exceptions, timeouts, etc.) in individual initializers are logged,
 but suppressed. An error occurs only when the whole initialization process fails
-and the block's output remains undefined.
+and the block's output remains not initialized.
 
 A block can have zero, one or more initializers.
 
@@ -85,17 +85,19 @@ A block can have zero, one or more initializers.
 .. warning::
   Initializers are not reusable::
 
+    import redzed as rz
+
     # correct
-    redzed.Memory("ok1", initial=redzed.InitValue(0))
-    redzed.Memory("ok2", initial=redzed.InitValue(0))
+    rz.Memory("ok1", initial=rz.InitValue(0))
+    rz.Memory("ok2", initial=rz.InitValue(0))
     # also correct
-    redzed.Memory("ok3", initial=0)
-    redzed.Memory("ok4", initial=0)
+    rz.Memory("ok3", initial=0)
+    rz.Memory("ok4", initial=0)
 
     # WRONG!
-    init0 = redzed.InitValue(0)
-    redzed.Memory("not_ok1", initial=init0)
-    redzed.Memory("not_ok2", initial=init0)
+    init0 = rz.InitValue(0)
+    rz.Memory("not_ok1", initial=init0)
+    rz.Memory("not_ok2", initial=init0)
 
 
 Sync initializers
@@ -103,9 +105,11 @@ Sync initializers
 
 .. class:: InitValue(value: Any)
 
-  Initialize with a fixed value. This is the most common initializer.
-  Block's *initial* argument allows you to enter just the value ``initial=value``
-  instead of ``initial=redzed.InitValue(value)``.
+  Initialize with a fixed value.
+
+  This is the most common initializer and for brevity Block's *initial* argument
+  allows to enter just the value ``initial=value`` instead of
+  ``initial=redzed.InitValue(value)``.
 
   :class:`!InitValue` offers a fail-safe initialization, so it is usually used
   alone or as the last initializer following :class:`RestoreState` or async initializers.
@@ -188,22 +192,22 @@ Examples (initializers)
 
 ::
 
-  redzed.Memory("example_1A",
-      initial=redzed.InitValue(0))        # initial value is 0
-  redzed.Memory("example_1B", initial=0)  # same as above, better readable
+  import redzed as rz
+
+  rz.Memory("example_1A", initial=rz.InitValue(0))  # initial value is 0
+  rz.Memory("example_1B", initial=0)      # same as above, better readable
 
 
   # compare:
-  redzed.Memory("timestamp_2A",
-      # initial value = time of block creation; time.time() is called immediately
-      initial=redzed.InitValue(time.time()))
-  redzed.Memory("timestamp_2B",
-      # initial value = time of block initialization; time.time() is called later
-      initial=redzed.InitFunction(time.time))
+  rz.Memory("timestamp_2A", initial=rz.InitValue(time.time()))
+  # initial value = time of block creation; time.time() is called immediately
 
-  redzed.DataPoll(
+  rz.Memory("timestamp_2B", initial=rz.InitFunction(time.time))
+  # initial value = time of block initialization; time.time() is called later
+
+  rz.DataPoll(
       'RH', comment="relative humidity in %", func=read_humidity, interval=60,
       # 1. wait up to 3 seconds for data
       # 2. if not initialized, use the saved value if it is recent (2 hours max.)
       # 3. if still not initialized, use a default of 50 %
-      initial=[redzed.InitWait(3), redzed.RestoreState("2h"), redzed.InitValue(50))
+      initial=[rz.InitWait(3), rz.RestoreState("2h"), 50)

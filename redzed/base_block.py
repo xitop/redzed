@@ -44,7 +44,7 @@ class BlockOrFormula:
         self.circuit.rz_add_item(self)
         self._dependent_formulas: set[formula_trigger.Formula] = set()
         self._dependent_triggers: set[formula_trigger.Trigger] = set()
-        self._output = UNDEF
+        self._output = self._output_prev = UNDEF
 
     @property
     def type_name(self) -> str:
@@ -71,16 +71,19 @@ class BlockOrFormula:
             raise ValueError(f"{self}: Cannot set output to <UNDEF>.")
         if output == self._output:
             return False
+        self._output_prev, self._output = self._output, output
         if get_debug_level() >= 1:
-            self.log_debug("Output: %r -> %r", self.get(), output)
-        self._output = output
+            self.log_debug("Output: %r -> %r", self._output_prev, output)
         return True
 
     def get(self) -> t.Any:
         return self._output
 
-    def is_undef(self) -> bool:
-        return self._output is UNDEF
+    def get_previous(self) -> t.Any:
+        return self._output_prev
+
+    def is_initialized(self) -> bool:
+        return self._output is not UNDEF
 
     def log_msg(self, msg: str, *args: t.Any, level: int, **kwargs: t.Any) -> None:
         """Add own name and log the message with given severity level."""

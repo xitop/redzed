@@ -61,7 +61,7 @@ async def test_args(circuit):
         return x and v2
 
     @redzed.formula
-    def f3(v1, y='v2'):
+    def _f3(v1, y='v2'):
         return v1 and y
 
     @redzed.triggered
@@ -79,3 +79,38 @@ async def test_args(circuit):
         m2.event('store', True)
 
     await runtest(tester())
+
+
+async def test_chain(circuit):
+    """Test a chain of formulas."""
+    log = []
+
+    src_blk = redzed.Memory("src", comment="value #1", initial=0)
+
+    @redzed.formula
+    def f1(src):
+        return src+10
+
+    @redzed.formula
+    def f2(f1):
+        return f1+100
+
+    @redzed.formula
+    def f3(f2):
+        return f2+4000
+
+    @redzed.formula
+    def f4(f3):
+        return f3+40000
+
+    @redzed.triggered
+    def output(f4):
+        log.append(f4)
+
+    async def tester():
+        src_blk.event('store', 8)
+        src_blk.event('store', 1)
+        src_blk.event('store', 3)
+
+    await runtest(tester())
+    assert log == [44_110, 44_118, 44_111, 44_113]

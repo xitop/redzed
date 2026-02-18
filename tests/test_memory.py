@@ -43,6 +43,33 @@ def test_events(circuit):
         mem.event('sleep')  # unknown event
 
 
+@pytest.mark.parametrize('opt_trigger', [False, True])
+def test_outputs(circuit, opt_trigger):
+    """Test output and previous output."""
+    mem = redzed.Memory('Cell', always_trigger=opt_trigger, initial=0)
+    mini_init(circuit)
+
+    assert mem.get() == 0
+    assert mem.get_previous() is redzed.UNDEF
+
+    assert mem.event('store', 1)
+    assert mem.get() == mem.event('_get_output') == 1
+    assert mem.get_previous() == mem.event('_get_previous') == 0
+
+    assert mem.event('store', 2)
+    assert mem.get() == 2
+    assert mem.get_previous() == 1
+
+    for _ in 0,1,2:
+        assert mem.event('store', 2)
+        assert mem.get() == 2
+        assert mem.get_previous() == (2 if opt_trigger else 1)
+
+    assert mem.event('store', 99)
+    assert mem.get() == mem.event('_get_output') == 99
+    assert mem.get_previous() == mem.event('_get_previous') == 2
+
+
 @pytest.mark.parametrize('suppress', [False, True])
 def test_validator(circuit, suppress):
     """Test the validator."""

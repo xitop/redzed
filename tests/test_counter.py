@@ -24,6 +24,7 @@ def test_inc_dec(circuit):
         assert cnt100.event('dec') == i + 100
         assert cnt.get() == i
         assert cnt100.get() == 100 + i
+    assert cnt.event('reset') == cnt.get() == 0     # evaluation left to right
 
 
 def test_amount_1(circuit):
@@ -58,16 +59,16 @@ def test_amount_3(circuit):
         assert cnt.get() == 0
 
 
-def test_put(circuit):
-    """Test put events."""
+def test_set(circuit):
+    """Test set events."""
     cnt = redzed.Counter('cnt')
     cnt11 = redzed.Counter('cnt_mod_11', modulo=11)
     mini_init(circuit)
 
     for i in range(-300, +300, 7):
-        cnt.event('put', evalue=i)
+        cnt.event('set', evalue=i)
         assert cnt.get() == i
-        cnt11.event('put', i)
+        cnt11.event('set', i)
         assert cnt11.get() == i % 11
 
 

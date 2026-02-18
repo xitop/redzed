@@ -50,7 +50,7 @@ The most common data entry block is :class:`!Memory`.
   Events:
     **'store'**
       Store and output the event data item  ``'evalue'``.
-      Return :const:`!True` if the value validates successfully.
+      Return :const:`True` if the value validates successfully.
       Validation errors are handled according to an optional
       event data item ``'suppress'``:
 
@@ -58,11 +58,11 @@ The most common data entry block is :class:`!Memory`.
         Note that each such error generates a log entry about
         a failed :meth:`!Block.event` call.
 
-      - if ``suppress=True`` - return :const:`!False`.
+      - if ``suppress=True`` - return :const:`False`.
 
-  Block's output is equal to the stored value.
-  :class:`!Memory` supports persistent state. The last known value can
-  be thus restored on the following start.
+  Block's output is equal to the stored value. :class:`!Memory` supports persistent
+  state. The last known value can be thus restored on the following start.
+
 
 .. class:: MemoryExp(name, *, duration, expired=None, **memory_kwargs)
 
@@ -134,8 +134,8 @@ A specialized block is provided for this task:
     Optional safeguard, disabled by default. Abort the circuit after this many
     failed consecutive attempts to get the next value. Value 0 disables this feature.
 
-  :param bool output_counter:
-    see also the standard :ref:`output_counter <2. Output>` parameter.
+  :param bool always_trigger:
+    see also the standard :ref:`always_trigger <2. Output>` parameter.
 
   **Initialization:**
     :class:`!DataPoll` initializes itself automatically if the acquisition

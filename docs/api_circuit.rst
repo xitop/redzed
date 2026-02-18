@@ -156,15 +156,20 @@ Circuit API
   :param MutableMapping[str, Any] | None persistent_dict:
     The *persistent_dict* argument should be a dictionary-like object backed by
     a disk file or similar non-volatile storage. It may be also
-    :const:`!None` to leave the feature disabled.
+    :const:`None` to leave the feature disabled.
 
   :param None | float | str sync_time:
     The frequency of checkpointing for blocks that have opted-in
     with ``checkpoints='interval'`` argument given to their :class:`RestoreState`
     initializer. Checkpointing synchronizes the *persistent_dict*
     with the in-memory states every *sync_time* seconds.
-    Default is 250 seconds (slightly more than four minutes).
-    An argument other than :const:`!None` overrides this default.
+    If there are no blocks to sync, the checkpointing task
+    will not run at all.
+
+    Default interval is 251 seconds (slightly more than four minutes).
+    Any argument other than :const:`None` overrides this default.
+    Shortest allowed interval is not set, but keep in mind that
+    frequent checkpointing degrades the performance.
 
   The *persistent_dict* must be ready to use. If it needs to be closed
   after use, the application is responsible for that.
@@ -180,7 +185,7 @@ Circuit API
   is saved automatically.
 
   This is a low-level save function. The caller has to check
-  that the :data:`Block.rz_persistence` flag is set before saving.
+  that the :attr:`Block.rz_persistence` flag is set before saving.
 
   Errors during saving are logged, but suppressed.
 
@@ -207,7 +212,7 @@ Always use the :func:`run` entry point to run the circuit!
   to give the task a name for better identification.
 
   By default, the coroutine will be called when the circuit successfully reaches
-  the :data:`CircuitState.RUNNING` state. If *immediate_start* is true,
+  the :attr:`CircuitState.RUNNING` state. If *immediate_start* is true,
   the coroutine will be called asap.
 
   If *auto_cancel* is true (default), the task will be automatically

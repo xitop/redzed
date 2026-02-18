@@ -161,7 +161,7 @@ Periodic events
 
     - not compatible with Redzed (add/subtract 1 to adjust):
 
-      - :meth:`datetime.date.weekday` and :data:`time.struct_time.wday`: 0 (Monday) to 6 (Sunday)
+      - :meth:`datetime.date.weekday` and :attr:`time.struct_time.wday`: 0 (Monday) to 6 (Sunday)
 
 Non-periodic events
 ===================

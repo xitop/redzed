@@ -154,8 +154,28 @@ There are two ways to define a formula.
 .. decorator:: formula
 
   Create a :class:`Formula` with the name and comment taken from the decorated function.
-  The formula *name* will be the same as the function name. The *comment* will be taken from
-  the first docstring text line. The function itself is unchanged.
+  The function itself is unchanged.
+
+  The *comment* will be taken from the first docstring text line.
+  The formula *name* will be the same as the function name. However,
+  if the function name starts with an underscore, this leading underscore
+  is stripped from the formula's name. We *encourage* the use of leading
+  underscore, because it prevents
+  :abbr`name shadowing (hiding a variable in outer scope with the same name)`
+  when the formula is referenced in a :class:`Trigger`::
+
+    import redzed as rz
+
+    rz.Counter('cnt', ...)
+
+    @rz.formula
+    def _threshold10(cnt):
+        return cnt > 10
+
+    @rz.triggered
+    def print_msg(threshold10):  # <-- no name shadowing with "threshold10"
+        if threshold10:
+            print("Threshold exceeded")
 
 .. class:: Formula(name: str, *, func: Callable, comment: str = "")
   :final:
@@ -184,10 +204,12 @@ There are two ways to define a formula.
   In this example is the output function triggered every time any of the inputs
   ``v1`` or ``v2`` changes. It may print the same output value several times in a row::
 
-    redzed.Memory("v1", comment="value #1", initial=False)
-    redzed.Memory("v2", comment="value #2", initial=False)
+    import redzed as rz
 
-    @redzed.triggered
+    rz.Memory("v1", comment="value #1", initial=False)
+    rz.Memory("v2", comment="value #2", initial=False)
+
+    @rz.triggered
     def output(v1, v2):
         print(f"Output is {v1 and v2}")
 
@@ -195,14 +217,14 @@ There are two ways to define a formula.
   The :func:`!output` function is triggered only when this computed
   value changes. It won't print the same value twice::
 
-    redzed.Memory("v1", comment="value #1", initial=False)
-    redzed.Memory("v2", comment="value #2", initial=False)
+    rz.Memory("v1", comment="value #1", initial=False)
+    rz.Memory("v2", comment="value #2", initial=False)
 
-    @redzed.formula
-    def v1_v2(v1, v2):
+    @rz.formula
+    def _v1_v2(v1, v2):
         return v1 and v2
 
-    @redzed.triggered
+    @rz.triggered
     def output(v1_v2):
         print(f"Output is {v1_v2}")
 
@@ -218,11 +240,11 @@ nor positional-only arguments.
 
 Example::
 
-  mem1 = redzed.Memory("inputA", initial=False)
-  mem2 = redzed.Memory("inputB", initial=False)
+  mem1 = rz.Memory("inputA", initial=False)
+  mem2 = rz.Memory("inputB", initial=False)
 
-  @redzed.formula
-  def and2(inputA, inputB):
+  @rz.formula
+  def _and2(inputA, inputB):
       return inputA and inputB
 
 The referenced blocks (here ``inputA`` and ``inputB``) can be created before
@@ -241,10 +263,10 @@ or the block's object. The example below shows both cases.
 
 ::
 
-  mem1 = redzed.Memory("class", initial=False)
-  mem2 = redzed.Memory(redzed.unique_name(), initial=False)
+  mem1 = rz.Memory("class", initial=False)
+  mem2 = rz.Memory(rz.unique_name(), initial=False)
 
   # "class" is a Python keyword
-  @redzed.formula
-  def and2(x='class', y=mem2):
+  @rz.formula
+  def _and2(x='class', y=mem2):
       return x and y

@@ -39,18 +39,18 @@ Example programs
 This tiny program prints "ding/dong" (the bell sound) in 1 second pace::
 
   import asyncio
-  import redzed
+  import redzed as rz
 
-  redzed.Timer('clk', comment="clock generator", t_period=1.0)
+  rz.Timer('clk', comment="clock generator", t_period=1.0)
 
-  @redzed.triggered
+  @rz.triggered
   def output_print(clk):
       print('     ..dong!' if clk else ' ding..')
 
   if __name__ == '__main__':
       print('Press ctrl-C to stop\n')
       try:
-          asyncio.run(redzed.run())
+          asyncio.run(rz.run())
       except KeyboardInterrupt:
           # prevent a traceback being printed
           raise SystemExit(" Exit on ctrl-c") from None
@@ -71,7 +71,7 @@ one :class:`Trigger` and few custom functions (for input, evaluation, output)::
 
   import asyncio
   import random
-  import redzed
+  import redzed as rz
 
   def measure_temperature():
       """Fake room thermometer (Celsius scale)."""
@@ -79,10 +79,10 @@ one :class:`Trigger` and few custom functions (for input, evaluation, output)::
       print(f"\nT={t:.1f}")
       return t
 
-  temp = redzed.DataPoll(
+  temp = rz.DataPoll(
      'temp', comment='thermometer', func=measure_temperature, interval=1.2)
 
-  @redzed.triggered
+  @rz.triggered
   def compare(temp):
       if temp < 22.0:
           heater.event('put', True)
@@ -97,12 +97,12 @@ one :class:`Trigger` and few custom functions (for input, evaluation, output)::
       else:
           print(" above 24 °C, COOLING")
 
-  heater = redzed.OutputFunc('heater', func=output)
+  heater = rz.OutputFunc('heater', func=output)
 
   if __name__ == '__main__':
       print('Press ctrl-C to stop\n')
       try:
-          asyncio.run(redzed.run())
+          asyncio.run(rz.run())
       except KeyboardInterrupt:
           # prevent a traceback being printed
           raise SystemExit(" Exit on ctrl-c") from None

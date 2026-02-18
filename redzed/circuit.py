@@ -126,7 +126,7 @@ class Circuit:
             # runner's start timestamp (monotonic clock)
         self._auto_cancel_tasks: set[asyncio.Task[t.Any]] = set()
             # interval for checkpointing
-        self._sync_time = 250.0
+        self._sync_time = 251.0
 
     def log_debug1(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
         """Log a message if debugging is enabled."""
@@ -359,13 +359,13 @@ class Circuit:
         Persistent state is handled elsewhere.
         """
         for init in blk.rz_initializers:
-            if not blk.is_undef():
+            if blk.is_initialized():
                 return
             if isinstance(init, AsyncInitializer):
                 yield init
             else:
                 init.apply_to(blk)
-        if blk.is_undef() and blk.has_method('rz_init_default'):
+        if not blk.is_initialized() and blk.has_method('rz_init_default'):
             blk.log_debug2("Calling the built-in default initializer")
             blk.rz_init_default()
 
@@ -395,7 +395,7 @@ class Circuit:
         Run async initializations concurrently.
         """
         # Init from value provided by initializers (specified with initial=... or built-in)
-        uninitialized = [blk for blk in blocks if blk.is_undef()]
+        uninitialized = [blk for blk in blocks if not blk.is_initialized()]
         sync_blocks: list[Block] = []
         async_blocks: list[Block] = []
         for blk in uninitialized:
@@ -414,7 +414,7 @@ class Circuit:
                     tg.create_task(self.init_block_async(blk))
         # final check
         for blk in blocks:
-            if blk.is_undef():
+            if not blk.is_initialized():
                 raise RuntimeError(f"Block '{blk.name}' was not initialized")
 
     def save_persistent_state(self, blk: Block, now: float|None = None) -> None:
@@ -425,7 +425,7 @@ class Circuit:
         enabled and the storage is ready.
         """
         assert self.rz_persistent_dict is not None
-        if blk.is_undef():
+        if not blk.is_initialized():
             blk.log_debug2("Not saving undefined state")
         if now is None:
             now = time.time()

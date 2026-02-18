@@ -29,7 +29,9 @@ Event type and data
 An event is a message addressed to a destination block. It is identified
 by its type. The type is a name (string) and must a valid Python identifier.
 The event type selects the event handler for the given event. The event
-can carry arbitrary data in the form of ``'name':<value>`` pairs.
+can carry arbitrary data in the form of ``'name':<value>`` pairs, except when
+the ``<value>`` is equal to the special constant :const:`UNDEF`, the whole
+entry is filtered out.
 
 Blocks react to events by performing some specific action and returning a result.
 For example a :class:`Memory` block accepts a ``'store'`` event, expects
@@ -72,7 +74,15 @@ block type. Other items may be added in the future.
 _get_output
 -----------
 
-``Block.event('_get_output')`` returns the current output.
+``Block.event('_get_output')`` calls :meth:`Block.get`
+and returns the current output.
+
+
+_get_previous
+-------------
+
+``Block.event('_get_previous')`` calls :meth:`Block.get_previous`
+and returns the previous output.
 
 
 _get_state

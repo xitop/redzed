@@ -39,13 +39,15 @@ Auxiliary blocks
 
     - **'dec'**
        Decrement (count down) the counter by 1 or by ``'evalue'``.
-    - **'put'**
+    - **'reset'**
+       Set the :class:`!Counter` to zero.
+    - **'set'**
        Set the :class:`!Counter` to ``'evalue'`` data item (mod M).
 
   :class:`!Counter` supports persistent state.
 
 
-.. class:: Repeat(name, *, dest, interval, count = None, **block_kwargs)
+.. class:: Repeat(name, *, dest, interval, count = None, jitter_pct = 0, **block_kwargs)
 
   Periodically repeat the last received event.
 
@@ -56,6 +58,13 @@ Auxiliary blocks
   :param int | None count:
     optional limit for repetition count, the original event is not counted.
     This limit can be overridden as well.
+  :param float jitter_pct:
+    Percentage of jitter. This option randomly adjusts the time interval in order
+    to prevent a :abbr:`"thundering herd" (many activities started at the same time)`
+    behavior. The argument must be between 0 (no jitter, the default) and 50
+    (jitter up to +/- 50%). For example ``jitter_pct=15`` (i.e. +/- 15%) means
+    that each wait time will be randomly chosen from the range of 85% to 115%
+    of the original interval.
 
   :class:`!Repeat` is intended to repeat events destined to an output block.
   Its purpose is to minimize the chance that some connected device will fail to act
@@ -74,13 +83,13 @@ Auxiliary blocks
   A :class:`!Repeat` block adds a ``'repeat'`` count value to the
   event data. The original event is sent with ``'repeat': 0`` and
   subsequent repetitions are sent with ``'repeat': N`` where N is 1, 2, 3, ...
-  This repeat value is also copied to the output, the initial output is 0.
+  This repeat value is also copied to the output. The initial output is 0.
 
   **Overriding interval and count**
 
   An event may include items ``'repeat_interval'`` and ``'repeat_count'`` with values
   overriding the defaults set by arguments *interval* and *count*.
-  The interval must be a number (float). Strings with units are not accepted here.
+  The repeat_interval must be a number. Strings with units are not accepted here.
   These event data items will be removed from the event data before forwarding
   the event to *dest*.
 

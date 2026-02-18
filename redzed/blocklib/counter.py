@@ -8,6 +8,8 @@ Home: https://github.com/xitop/redzed/
 
 from __future__ import annotations
 
+import typing as t
+
 import redzed
 
 __all__ = ['Counter']
@@ -35,8 +37,12 @@ class Counter(redzed.Block):
     def _event_dec(self, edata: redzed.EventData) -> int:
         return self._setmod(self._output - edata.get('evalue', 1))
 
-    def _event_put(self, edata: redzed.EventData) -> int:
+    def _event_set(self, edata: redzed.EventData) -> int:
         return self._setmod(edata['evalue'])
+
+    def _event_reset(self, _edata: redzed.EventData) -> t.Literal[0]:
+        self._set_output(0)
+        return 0
 
     def rz_init_default(self) -> None:
         self._set_output(0)

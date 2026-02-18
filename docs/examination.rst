@@ -31,7 +31,7 @@ alternative methods described in the next section.
     :attr:`Block.name`, :attr:`Block.comment`
 
 - Get the current output:
-    Call :meth:`Block.get`. See also: :meth:`Block.is_undef`.
+    Call :meth:`Block.get`. See also: :meth:`Block.is_initialized`.
 
 
 Inspecting Blocks

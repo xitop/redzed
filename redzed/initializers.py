@@ -115,7 +115,7 @@ class RestoreState(SyncInitializer):
 
     def __init__(
             self,
-            checkpoints: None|t.Literal['event', 'interval'] = None,
+            checkpoints: t.Literal['event', 'interval', None] = None,
             expiration: None|float|str = None
             ) -> None:
         super().__init__()
@@ -210,7 +210,7 @@ class AsyncInitializer:
         blk.log_debug2("%s: init value: %r", self.type_name, init_value)
         if init_value is UNDEF:
             return
-        if not blk.is_undef():
+        if blk.is_initialized():
             blk.log_debug1(
                 "%s: not applying the init value, because the block "
                 + "has been initialized in the meantime", self.type_name)

@@ -9,7 +9,7 @@
 Block API
 =========
 
-.. class:: Block(name, *, comment: str="", initial=redzed.UNDEF, stop_timeout=redzed.UNDEF, output_counter=False, output_previous=False, **x_kwargs)
+.. class:: Block(name, *, comment: str="", initial=redzed.UNDEF, stop_timeout=None, always_trigger=False, **x_kwargs)
 
   Base class of all logic blocks. A :class:`Block` has no function by itself
   and cannot be instantiated.
@@ -65,52 +65,50 @@ For a description visit :ref:`setting the name <Setting the name>`.
 
 .. data:: UNDEF
 
-  A singleton representing an undefined output. All other output values
-  are valid, including :const:`None`. It is an error to output :const:`UNDEF`
-  after the circuit initialization.
+  :const:`!UNDEF` is a sentinel value for an uninitialized (i.e. undefined)
+  state or output. It is an error when a block outputs :const:`UNDEF` after
+  the circuit initialization. All other output values are valid, including
+  :const:`None`.
 
-  :const:`UNDEF` sentinel is also used as a default for some optional
-  keyword arguments to indicate an unused parameter.
+  It is also used as a placeholder for a missing value, an unused option, etc.
+  mainly when :const:`None` cannot be used as a sentinel.
+
+  :const:`!UNDEF` is a singleton, its boolean value is :const:`False`
+  and its string representation is ``"<UNDEF>"``.
+
 
 **Parameters:**
 
-  Following output modifiers are mutually exclusive and disabled by default:
+  **always_trigger** (bool)
+    When :const:`False`, activate connected triggers only when the output changes.
+    This is the default. When :const:`True`, activate the triggers every time
+    a value is output. Set this option if you want to activate directly connected
+    triggers for each value in a series of same values.
 
-  **output_counter** (bool) - append a sequence number
-    When enabled, the output is a tuple ``(value, sequence_number)``
-    instead of just ``value``. The ``sequence_number`` is an integer
-    starting at 0 and incremented with each output operation.
-    This guarantees a different output even if the new ``value``
-    happens to be exactly the same as the previous one.
+.. method:: Block.is_initialized() -> bool
 
-    Use the counter if you want to activate a connected trigger for each value
-    in a series of same values. Do not use it if such series means
-    a constant level that does not require an action.
-
-  **output_previous** (bool) - append the previous value
-    When enabled, the output is a tuple ``(current_value, previous_value)``
-    instead of just ``current_value``. The very first output after initialization
-    is ``(first_value, redzed.UNDEF)``. That's the only allowed occurrence
-    of :const:`UNDEF` in the output.
-
-    Use this feature to compute deltas or to detect changes, e.g. :const:`False`
-    -> :const:`True` without acting on initial :const:`UNDEF` -> :const:`True`.
+  Check if the output differs from :const:`UNDEF`, i.e. if the block has been initialized.
 
 .. method:: Block.get() -> Any
 
-  Get the current output value.
+  Get the current output value. Return :const:`UNDEF` if the block hasn't been
+  initialized yet.
 
-.. method:: Block.is_undef() -> bool
+.. method:: Block.get_previous() -> Any
 
-  Check if the output is :const:`UNDEF`, i.e. if the block is still not initialized.
+  Get the previous output value. Return :const:`UNDEF` if the block did not have
+  two values (current and previous) yet.
 
 .. method:: Block._set_output(output: Any) -> bool
 
   Set the output value. It is not allowed to output :const:`UNDEF`.
 
-  Return :const:`True` if the output has changed. In this case, dependent formulas are
-  recalculated and (subsequently) affected triggers activated. Return :const:`False`
-  if the output value is the same as before and therefore no circuit activity took place.
+  Return :const:`True` if the output has changed or the *always_trigger* option was set.
+  In this case, the old output value becomes previous value (see :meth:`Block.get_previous`),
+  dependent formulas are recalculated and (subsequently) affected triggers activated.
+
+  Return :const:`False` if the output value is the same
+  as before and no circuit activity was initiated.
 
   If you override :meth:`!Block._set_output` in a subclass, please don't forget to return
   a proper value; in most cases: ``return super()._set_output(modified_output)``.
@@ -278,13 +276,19 @@ Block's :ref:`state persistence <Persistent state>` support requires two methods
     It is accepted only if :meth:`rz_astop` is implemented.
     Otherwise it must not be used.
 
-    Note that there is no :strike:`init_timeout` counterpart parameter.
+    Note that there is no *init_timeout* counterpart parameter.
     Async initialization is handled in block's
     :ref:`async initializers <Async initializers>`, not in the block itself.
 
 Exceptions in cleanup functions will be logged, but otherwise ignored.
 Please note that when shutting down due to a circuit initialization error,
 these "stop" functions may be called even if :meth:`rz_start` hasn't been called.
+
+.. attribute:: Block.rz_stop_timeout
+  :type: float|None
+
+  The *stop_timeout* value as a number if this parameter is allowed (see above).
+  Otherwise :const:`None`.
 
 .. method:: Block.rz_stop() -> None
 
@@ -325,7 +329,7 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
 
   Event data type. An alias for ``dict[str, Any]``.
 
-  The event data is passed as a Python dict, i.e. it consist of ``'name': <value>`` pairs.
+  The event data form a Python dict, i.e. they consist of ``'name': <value>`` pairs.
   The keys (names) are strings and valid Python identifiers, because the data
   items were passed to the :meth:`Block.event()` function as keyword arguments.
 
@@ -335,23 +339,24 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
 
 .. method:: Block.event(etype: str, /, evalue: Any = redzed.UNDEF, **edata: Any) -> Any
 
+    .. important::
+      Do not overload this method. Implement all functionality inside event handlers.
+
     Handle the incoming event of type *etype* with optionally attached *edata*
     by dispatching it to the appropriate handler. Return the handler's exit value.
     :exc:`UnknownEvent` is raised if there is no handler for the *etype*.
     :exc:`CircuitShutDown` is raised if a non-monitoring event arrives after
-    block's shutdown - see :ref:`rz_is_shut_down`.
+    block's shutdown - see :meth:`Block.rz_is_shut_down`.
 
-    The *evalue* is part of the *edata*. If it is given (i.e. not :const:`UNDEF`), it is inserted
+    The *evalue* is part of the *edata*. If it is given, it is inserted
     into *edata* as ``edata['evalue']``. It is accepted either as a positional or
     as a keyword argument just for convenience.
 
-    .. important::
-      Do not overload this method. Implement all functionality inside event handlers.
+    All event data items whose value is :const:`UNDEF` are removed before calling
+    the handler.
 
-    .. important::
-
-      While a block is handling an event, it will raise an exception when it receives
-      an event of exactly the same type. This precaution stops otherwise infinite loops.
+    While a block is handling an event, it will raise an exception when it receives
+    an event of exactly the same type. This precaution stops otherwise infinite loops.
 
 .. exception:: UnknownEvent
 

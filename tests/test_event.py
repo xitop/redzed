@@ -22,6 +22,10 @@ def test_delivery(circuit):
     assert dest.get() == ('store', 2)
     dest.event('new', 3, first=None, second="x")
     assert dest.get() == ('new', 3, {'first': None, 'second': "x"})
+    dest.event('move', 4, left=redzed.UNDEF, right=True)
+    assert dest.get() == ('move', 4, {'right': True})
+    dest.event('move', 5, left=True, right=redzed.UNDEF)
+    assert dest.get() == ('move', 5, {'left': True})
 
 
 def test_retval(circuit):

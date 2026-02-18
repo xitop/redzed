@@ -34,5 +34,6 @@ class UndefType(enum.Enum, metaclass=DefaultEnumType):
     __str__ = __repr__
 
 
-# Uninitialized circuit block's state value
+# Uninitialized circuit block's state or output,
+# and a sentinel for general use
 UNDEF: t.Final = UndefType.UNDEF

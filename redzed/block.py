@@ -18,7 +18,7 @@ import typing as t
 from .base_block import BlockOrFormula
 from .debug import get_debug_level
 from . import initializers
-from .undef import UNDEF, UndefType
+from .undef import UNDEF
 from .utils import check_identifier, is_multiple, time_period
 
 _logger = logging.getLogger(__package__)
@@ -86,9 +86,8 @@ class Block(BlockOrFormula):
     def __init__(
             self, *args,
             initial: t.Any = UNDEF,
-            stop_timeout: float|str|UndefType = UNDEF,
-            output_counter: bool = False,
-            output_previous: bool = False,
+            stop_timeout: float|str|None = None,
+            always_trigger: bool = False,
             **kwargs
             ) -> None:
         """
@@ -144,7 +143,7 @@ class Block(BlockOrFormula):
 
         has_astop = self.has_method('rz_astop')
         self.rz_stop_timeout: float|None
-        if stop_timeout is UNDEF:
+        if stop_timeout is None:
             if has_astop:
                 self.log_debug2("Using default: stop_timeout=%.1f", _DEFAULT_STOP_TIMEOUT)
                 self.rz_stop_timeout = _DEFAULT_STOP_TIMEOUT
@@ -157,11 +156,7 @@ class Block(BlockOrFormula):
                     + "is not supported by this block type")
             self.rz_stop_timeout = time_period(stop_timeout)
         self._etypes_active: set[str] = set()   # events in-progress, disallow event recursion
-        if output_counter and output_previous:
-            raise TypeError(
-                "Options 'output_counter' and 'output_previous' are mutually exclusive.")
-        self._counter = 0 if output_counter else -1
-        self._previous = bool(output_previous)
+        self._always_trigger = bool(always_trigger)
         self._init_task: asyncio.Task[t.Any]|None = None
 
     def rz_set_inittask(self, task: asyncio.Task[t.Any]) -> None:
@@ -180,13 +175,12 @@ class Block(BlockOrFormula):
             if not self._init_task.done():
                 self._init_task.cancel()
             self._init_task = None
-        if self._counter >= 0:
-            output = (output, self._counter)
-            self._counter += 1
-        if self._previous:
-            output = (output, self._output)
         if not super()._set_output(output):
-            return False
+            if self._always_trigger:
+                self._output_prev = output
+                self.log_debug("Output: %r (same as before)", output)
+            else:
+                return False
         triggers = self._dependent_triggers.copy()
         for frm in self._dependent_formulas:
             triggers |= frm.evaluate()
@@ -198,29 +192,33 @@ class Block(BlockOrFormula):
         """
         Set output to None for blocks that do not have init functions.
 
-        It is assumed that these blocks do not use their output.
+        It is assumed that such blocks do not use their output.
         """
-        if self.is_undef() and not self.has_method('rz_init'):
+        if not self.is_initialized() and not self.has_method('rz_init'):
             self._set_output(None)
 
     def _default_event_handler(self, etype: str, edata: EventData) -> t.Any:
         """Default event handler."""
         raise UnknownEvent(f"{self}: Unknown event type {etype!r}")
 
-    # note the double underscore: ...vent_ + _get...
+    # note the double underscore: ...event_ + _get...
     def _event__get_names(self, _edata: EventData) -> t.Any:
         """Handle '_get_names' monitoring event."""
         return {'type': self.type_name, 'name': self.name, 'comment': self.comment}
 
     def _event__get_output(self, _edata: EventData) -> t.Any:
-        """Handle '_get_state' monitoring event."""
+        """Handle '_get_output' monitoring event."""
         return self.get()
+
+    def _event__get_previous(self, _edata: EventData) -> t.Any:
+        """Handle '_get_previous' monitoring event."""
+        return self.get_previous()
 
     def _event__get_state(self, _edata: EventData) -> t.Any:
         """Handle '_get_state' monitoring event."""
         if not self.has_method('rz_export_state'):
             raise UnknownEvent(f"{self.type_name} blocks do not support this event")
-        if self.is_undef():
+        if not self.is_initialized():
             raise RuntimeError("Not initialized yet")
         # pylint: disable-next=no-member
         return self.rz_export_state()         # type: ignore[attr-defined]
@@ -242,6 +240,9 @@ class Block(BlockOrFormula):
         if evalue is not UNDEF:
             edata['evalue'] = evalue
 
+        for key in [k for k,v in edata.items() if v is UNDEF]:
+            del edata[key]
+
         if get_debug_level() >= 1:
             if not edata:
                 self.log_debug("Got event '%s'", etype)
@@ -257,7 +258,7 @@ class Block(BlockOrFormula):
             raise exc
         self._etypes_active.add(etype)
         try:
-            if self.is_undef():
+            if not self.is_initialized():
                 # We will allow the event, because:
                 #   - some blocks need an event for their initialization
                 #   - this event could have arrived during initialization by chance or race
@@ -280,8 +281,7 @@ class Block(BlockOrFormula):
                     err.add_note("A required event value is almost certainly missing")
                 raise
             if (self.rz_persistence & PersistenceFlags.EVENT
-                    and not etype.startswith('_get_')       # nothing has changed
-                    and not self.is_undef()):               # nothing to save
+                    and not etype.startswith('_get_') and self.is_initialized()):
                 self.circuit.save_persistent_state(self)
             self.log_debug2("Event '%s' returned: %r", etype, retval)
             return retval

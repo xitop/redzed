@@ -7,6 +7,30 @@ Changelog
 Version numbers are based on the release date (Y.M.D).
 
 
+26.2.18 (beta)
+==============
+
+Breaking changes:
+
+- :meth:`!Block.is_undef` was replaced by :meth:`Block.is_initialized`.
+  Note the inverse meaning.
+- :ref:`Logic block <Block API>` output modifiers were a bad design
+  choice and were removed. Approximate replacements of options *output_counter*
+  and *output_previous* are *always_trigger* and :meth:`Block.get_previous`
+  respectively.
+- :class:`Counter`: event ``'put'`` was renamed to ``'set'``
+
+New features, improvements:
+
+- :class:`MemoryBuffer`, :class:`QueueBuffer`: new ``.attach_output()`` method
+  allows to create a matching async output block easily
+- :deco:`formula`: new naming rule
+- :class:`Counter`: event ``'reset'`` was added
+- :class:`Repeat`: *jitter_pct* option was added
+- Event data entries with :const:`UNDEF` value are automatically
+  filtered out by :meth:`Block.event`
+
+
 26.2.4 (beta)
 =============
 

@@ -57,8 +57,9 @@ Table of contents
   :caption: API reference
   :maxdepth: 2
 
-  api_blocks
+  api_block
   api_circuit
+  api_formula
   api_cron
   utils
 

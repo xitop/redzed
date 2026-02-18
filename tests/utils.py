@@ -150,10 +150,10 @@ def mini_init(circuit):
         frm.rz_pre_init()
     blocks = list(get_items(redzed.Block))
     for blk in blocks:
-        if blk.is_undef():
+        if not blk.is_initialized():
             circuit.init_block_sync(blk)
     for blk in blocks:
-        if blk.is_undef():
+        if not blk.is_initialized():
             raise RuntimeError(f"Block {blk.name} was not initialized")
     for trig in get_items(redzed.Trigger):
         trig.rz_pre_init()
