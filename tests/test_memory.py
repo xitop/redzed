@@ -46,37 +46,49 @@ def test_events(circuit):
 @pytest.mark.parametrize('opt_trigger', [False, True])
 def test_outputs(circuit, opt_trigger):
     """Test output and previous output."""
-    mem = redzed.Memory('Cell', always_trigger=opt_trigger, initial=0)
+    names = {'name': 'Cell', 'comment': 'test block', 'type': 'Memory'}
+
+    mem = redzed.Memory('Cell', comment='test block', always_trigger=opt_trigger, initial=0)
+    assert mem.event('_get_info') == names
     mini_init(circuit)
 
     assert mem.get() == 0
-    assert mem.get_previous() is redzed.UNDEF
+    assert mem.event('_get_info') == names | {'output': 0}
+    assert mem.get(with_previous=True) == (0, redzed.UNDEF)
 
     assert mem.event('store', 1)
-    assert mem.get() == mem.event('_get_output') == 1
-    assert mem.get_previous() == mem.event('_get_previous') == 0
+    assert mem.get() == 1
+    assert mem.get(with_previous=True) == (1, 0)
+    assert mem.event('_get_info') == names | {'output': 1, 'previous': 0}
 
     assert mem.event('store', 2)
     assert mem.get() == 2
-    assert mem.get_previous() == 1
+    assert mem.get(with_previous=True) == (2, 1)
+    assert mem.event('_get_info') == names | {'output': 2, 'previous': 1}
 
     for _ in 0,1,2:
         assert mem.event('store', 2)
         assert mem.get() == 2
-        assert mem.get_previous() == (2 if opt_trigger else 1)
+        prev = 2 if opt_trigger else 1
+        assert mem.get(with_previous=True) == (2, prev)
+        assert mem.event('_get_info') == names | {'output': 2, 'previous': prev}
 
     assert mem.event('store', 99)
-    assert mem.get() == mem.event('_get_output') == 99
-    assert mem.get_previous() == mem.event('_get_previous') == 2
+    assert mem.get() == 99
+    assert mem.get(with_previous=True) == (99, 2)
+    assert mem.event('_get_info') == names | {'output': 99, 'previous': 2}
 
 
+@pytest.mark.parametrize('exc', [False, True])
 @pytest.mark.parametrize('suppress', [False, True])
-def test_validator(circuit, suppress):
+def test_validator(circuit, exc, suppress):
     """Test the validator."""
     def is_multiple_of_5(n):
         if n % 5 == 0:
             return n
-        raise ValueError("no!")
+        if exc:
+            raise ValueError("no!")
+        return redzed.UNDEF
 
     mem = redzed.Memory(
         'M', validator=is_multiple_of_5,

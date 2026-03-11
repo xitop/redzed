@@ -55,7 +55,7 @@ async def test_async(circuit):
         'dp', func=_data_source("A", "E", "I"),
         interval='0m0.035s', initial=redzed.InitWait(0.1))
 
-    @redzed.triggered
+    @redzed.trigger
     def dp_to_logger(dp):
         logger.log(dp)
 
@@ -77,7 +77,7 @@ async def test_init_done(circuit):
         func=_data_source(redzed.UNDEF, redzed.UNDEF, 1, 2, 3, 4),
         interval='0m0.05s', initial=redzed.InitWait(0.3))
 
-    @redzed.triggered
+    @redzed.trigger
     def dp_to_logger(dp):
         logger.log(dp)
 
@@ -136,7 +136,7 @@ async def test_always_trigger(circuit, opt_trigger):
 
     logger = TimeLogger('logger', mstop=True)
     redzed.DataPoll('dp', func=acq, always_trigger=opt_trigger, interval=0.02)
-    @redzed.triggered
+    @redzed.trigger
     def _to_logger(dp):
         logger.log(dp)
     await runtest(sleep=0.11)
@@ -169,7 +169,7 @@ async def test_abort(circuit, failures):
 
     cnt = 0
     redzed.DataPoll('dp', func=gen, abort_after_failures=failures, interval=0.02)
-    @redzed.triggered
+    @redzed.trigger
     def count_values(dp):
         nonlocal cnt
         cnt += 1
@@ -197,7 +197,7 @@ async def test_no_abort(circuit):
 
     cnt = 0
     redzed.DataPoll('dp', func=gen, interval=0.012)     # abort_after_failures=0 is default
-    @redzed.triggered
+    @redzed.trigger
     def count_values(dp):
         nonlocal cnt
         cnt += 1
@@ -303,7 +303,7 @@ async def test_persistence(circuit):
     circuit.set_persistent_storage(storage)
     dp1 = redzed.DataPoll(
         'pers', func=lambda: redzed.UNDEF, interval=1,
-        initial=[redzed.RestoreState(), redzed.InitValue(33)])
+        initial=[redzed.PersistentState(), redzed.InitValue(33)])
     await runtest(sleep=0.05)
     assert dp1.get() == 33
     assert strip_ts(storage)[dp1.rz_key] == 33
@@ -315,7 +315,7 @@ async def test_persistence(circuit):
     circuit.set_persistent_storage(storage)
     dp2 = redzed.DataPoll(
         'pers', func=lambda: 22, interval=1,
-        initial=[redzed.RestoreState(), redzed.InitValue(11)])
+        initial=[redzed.PersistentState(), redzed.InitValue(11)])
     await runtest(sleep=0.05)
     assert dp2.get() == 22
     assert strip_ts(storage)[dp2.rz_key] == 22
@@ -332,10 +332,10 @@ async def test_persistence(circuit):
 
     dp3 = redzed.DataPoll(
         'pers', func=get44, interval=0.02,
-        initial=[redzed.RestoreState(), redzed.InitValue(11)])
+        initial=[redzed.PersistentState(), redzed.InitValue(11)])
 
     log = []
-    @redzed.triggered
+    @redzed.trigger
     def append_to_log(pers):
         log.append(pers)
     await runtest(sleep=0.08)

@@ -10,7 +10,7 @@ import pytest
 
 import redzed
 
-from .utils import runtest, TimeLogger, strip_ts
+from .utils import runtest, TimeLogger
 
 pytestmark = pytest.mark.usefixtures("task_factories")
 
@@ -51,7 +51,7 @@ async def ptest(circuit, delay, slog):
     circuit.set_persistent_storage(state)
     me = redzed.MemoryExp(
         'exp', duration=0.15, expired="exp",
-        initial=[redzed.RestoreState(), redzed.InitValue("ok1")])
+        initial=[redzed.PersistentState(), redzed.InitValue("ok1")])
     await runtest(sleep=0.05)
     assert me.rz_key in state
 
@@ -63,7 +63,7 @@ async def ptest(circuit, delay, slog):
     logger = TimeLogger('logger', triggered_by='exp')
     redzed.MemoryExp(
         'exp', duration=0.15, expired="exp",
-        initial=[redzed.RestoreState(), redzed.InitValue("ok2")])
+        initial=[redzed.PersistentState(), redzed.InitValue("ok2")])
     await runtest(sleep=0.2)
     logger.compare(slog)
 
@@ -94,7 +94,7 @@ async def test_validator_persistence(circuit):
 
     inp = redzed.MemoryExp(
         "inp", duration=10, expired=99,
-        initial=[redzed.RestoreState(), redzed.InitValue(7)], validator=add100)
+        initial=[redzed.PersistentState(), redzed.InitValue(7)], validator=add100)
     storage = {}
     circuit.set_persistent_storage(storage)
     await runtest(sleep=0)
@@ -106,6 +106,6 @@ async def test_validator_persistence(circuit):
 
     inp = redzed.MemoryExp(
         "inp", duration=10, expired=0,
-        initial=[redzed.RestoreState(), redzed.InitValue(3)], validator=add100)
+        initial=[redzed.PersistentState(), redzed.InitValue(3)], validator=add100)
     await runtest(sleep=0)
     assert inp.get() == 107     # add100 not applied again

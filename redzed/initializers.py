@@ -9,12 +9,14 @@ from __future__ import annotations
 
 __all__ = [
     'AsyncInitializer', 'SyncInitializer',
-    'InitFunction', 'InitTask', 'InitValue', 'InitWait', 'RestoreState']
+    'InitFunction', 'InitTask', 'InitValue', 'InitWait', 'PersistentState', 'RestoreState',
+    'SaveFlags', 'SF_EVENT', 'SF_INTERVAL', 'SF_NONE', 'SF_OUTPUT']
+
 
 import asyncio
 from collections.abc import Callable, Awaitable
+import enum
 import time
-import typing as t
 
 from . import block
 from .undef import UNDEF, UndefType
@@ -41,7 +43,7 @@ class SyncInitializer:
     def type_name(self) -> str:
         return type(self).__name__
 
-    def _get_init(self) -> t.Any:
+    def _get_init(self) -> object:
         """Return the initial value or UNDEF if not available."""
         raise NotImplementedError()
 
@@ -78,7 +80,7 @@ class InitFunction(SyncInitializer):
     Initialize with a calculated value.
     """
 
-    def __init__(self, func: Callable[..., t.Any], *args: t.Any) -> None:
+    def __init__(self, func: Callable[..., object], *args: object) -> None:
         """
         Usage: InitFunction(func, arg1, arg2, ...)
         Use functools.partial to pass keyword arguments.
@@ -89,7 +91,7 @@ class InitFunction(SyncInitializer):
         self._func = func
         self._args = args
 
-    def _get_init(self) -> t.Any:
+    def _get_init(self) -> object:
         return self._func(*self._args)
 
 
@@ -98,55 +100,68 @@ class InitValue(SyncInitializer):
     Initialize with a literal value.
     """
 
-    def __init__(self, value: t.Any) -> None:
+    def __init__(self, value: object) -> None:
         super().__init__()
         if value is UNDEF:
             raise ValueError("<UNDEF> is not a valid initialization value.")
         self._value = value
 
-    def _get_init(self) -> t.Any:
+    def _get_init(self) -> object:
         return self._value
 
 
-_CHECKPOINTS = [None, 'event', 'interval']
+class SaveFlags(enum.Flag):
+    """
+    When to save block's internal state to the persistent storage.
+    """
+    ENABLED = enum.auto()   # persistent state is enabled, save at exit
+    # additional options, they may be set only if ENABLED,
+    INTERVAL = enum.auto()  # save periodically
+    EVENT = enum.auto()     # save after each event
+    OUTPUT = enum.auto()    # save after each output change
 
-class RestoreState(SyncInitializer):
+SF_NONE = SaveFlags(0)
+SF_INTERVAL = SaveFlags.INTERVAL
+SF_EVENT = SaveFlags.EVENT
+SF_OUTPUT = SaveFlags.OUTPUT
+
+
+class PersistentState(SyncInitializer):
     """Restore from saved state."""
 
     def __init__(
-            self,
-            checkpoints: t.Literal['event', 'interval', None] = None,
-            expiration: None|float|str = None
+            self, save_flags: SaveFlags|None = None, expiration: float|str|None = None
             ) -> None:
         super().__init__()
-        if not checkpoints in _CHECKPOINTS:
-            raise ValueError(
-                "Parameter checkpoints must be one of: "
-                + f"{', '.join(repr(ch) for ch in _CHECKPOINTS)}")
-        self.rz_checkpoints = checkpoints
-        self._expiration = time_period(expiration, passthrough=None)
+        if not (save_flags is None or isinstance(save_flags, SaveFlags)):
+            raise TypeError(
+                "Argument save_flags must be a combination of SF_ flags or None")
+        self.rz_save_flags = save_flags
+        self.rz_expiration = time_period(expiration, passthrough=None)
 
-    def _get_init(self) -> t.Any:
+    def _get_init(self) -> object:
         pass
 
-    def _get_state(self, blk: block.Block) -> t.Any:
-        storage = blk.circuit.rz_persistent_dict
+    def _get_state(self, blk: block.Block) -> object:
+        storage = blk.circuit.get_persistent_storage()
         assert storage is not None
+        state: object
+        timestamp: float
         try:
-            state, timestamp = storage[blk.rz_key]
+            state, timestamp = storage[blk.rz_key]      # type: ignore[misc]
         except KeyError:
             blk.log_debug2("No saved state was found")
             return UNDEF
         except Exception as err:
             blk.log_warning("State retrieval error: %r", err)
             return UNDEF
-        if self._expiration is None:
+        if self.rz_expiration is None:
             return state
         age = time.time() - timestamp
         if age < 0:
             blk.log_error(
                 "The timestamp of saved data is in the future, check the system time")
-        elif age > self._expiration:
+        elif age > self.rz_expiration:
             blk.log_debug2("The saved state has expired")
             return UNDEF
         return state
@@ -155,7 +170,7 @@ class RestoreState(SyncInitializer):
         if self._applied:
             return
         self._applied = True
-        if not blk.rz_persistence:
+        if not blk.rz_save_flags:
             return
         try:
             init_state = self._get_state(blk)
@@ -175,6 +190,9 @@ class RestoreState(SyncInitializer):
             return
 
 
+RestoreState = PersistentState      # transitory
+
+
 class AsyncInitializer:
     """
     Asynchronous initializer.
@@ -188,7 +206,7 @@ class AsyncInitializer:
     def type_name(self) -> str:
         return type(self).__name__
 
-    async def _async_get_init(self) -> t.Any:
+    async def _async_get_init(self) -> object:
         """Async version of _get_init."""
         raise NotImplementedError()
 
@@ -225,8 +243,8 @@ class InitTask(AsyncInitializer):
 
     def __init__(
             self,
-            aw_func: Callable[..., Awaitable[t.Any]],
-            *args: t.Any,
+            aw_func: Callable[..., Awaitable[object]],
+            *args: object,
             timeout: float|str = 10.0
             ) -> None:
         """Similar to InitFunction, but asynchonous."""
@@ -234,7 +252,7 @@ class InitTask(AsyncInitializer):
         self._aw_func = aw_func
         self._args = args
 
-    async def _async_get_init(self) -> t.Any:
+    async def _async_get_init(self) -> object:
         async with asyncio.timeout(self._timeout):
             return await self._aw_func(*self._args)
 

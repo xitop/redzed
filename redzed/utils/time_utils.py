@@ -152,8 +152,8 @@ def _str_to_period(tstr: str) -> float:
 
 
 def time_period(
-        period: t.Any,
-        passthrough:None|type[object]|Sequence[None|type[object]] = (),
+        period: object,
+        passthrough: None|type[object]|Sequence[None|type[object]] = (),
         zero_ok: bool = False) -> t.Any:
     """
     Convenience wrapper for convert().

@@ -27,7 +27,7 @@ async def output_func(circuit, *, log, v2=2, **kwargs):
     inp = redzed.Memory('input', initial=6)
     logger = TimeLogger('logger', mstop=True)
     echo = redzed.OutputFunc('output', func=worker, **kwargs)
-    @redzed.triggered
+    @redzed.trigger
     def mem2echo(v='input'):
         d = echo.event('put', v)
         assert v * (d-100) == 12

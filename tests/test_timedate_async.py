@@ -189,7 +189,7 @@ async def test_cron(circuit):
 
 async def test_persistent(circuit):
     td = redzed.TimeDate(
-        "pers", initial=[redzed.RestoreState(), {'dates': []}])
+        "pers", initial=[redzed.PersistentState(), {'dates': []}])
     storage = {}
     circuit.set_persistent_storage(storage)
     conf = None
@@ -208,7 +208,7 @@ async def test_persistent(circuit):
     assert strip_ts(storage)[td.rz_key] == conf
 
     redzed.reset_circuit()
-    td = redzed.TimeDate("pers", initial=redzed.RestoreState())
+    td = redzed.TimeDate("pers", initial=redzed.PersistentState())
     circuit = redzed.get_circuit()
     circuit.set_persistent_storage(storage)
 

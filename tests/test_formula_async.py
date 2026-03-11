@@ -20,7 +20,7 @@ async def test_example(circuit):
     m1 = redzed.Memory("v1", comment="value #1", initial=False)
     m2 = redzed.Memory("v2", comment="value #2", initial=False)
 
-    @redzed.triggered
+    @redzed.trigger
     def output1(v1, v2):
         log1.append(v1 and v2)
 
@@ -28,7 +28,7 @@ async def test_example(circuit):
     def v1_v2(v1, v2):
         return v1 and v2
 
-    @redzed.triggered
+    @redzed.trigger
     def output2(v1_v2):
         log2.append(v1_v2)
 
@@ -64,7 +64,7 @@ async def test_args(circuit):
     def _f3(v1, y='v2'):
         return v1 and y
 
-    @redzed.triggered
+    @redzed.trigger
     def output2(f1, f2, f3):
         assert f1 is f2 is f3
 
@@ -79,6 +79,39 @@ async def test_args(circuit):
         m2.event('store', True)
 
     await runtest(tester())
+
+
+async def test_eval_order(circuit):
+    """Test evaluation order: formulas before triggers."""
+    x_blk = redzed.Memory("x", initial=False)
+
+    cnt = 0
+
+    @redzed.formula
+    def _x_not(x):
+        return not x
+
+    @redzed.formula
+    def _x_not_not(x_not):
+        return not x_not
+
+    @redzed.trigger
+    def output2(x, x_not, x_not_not):
+        nonlocal cnt
+        cnt += 1
+        # no haphazard states
+        assert x is x_not_not
+        assert not (x and x_not)
+        assert (x or x_not)
+
+    async def tester():
+        x_blk.event('store', True)
+        x_blk.event('store', False)
+        x_blk.event('store', True)
+        x_blk.event('store', False)
+
+    await runtest(tester())
+    assert cnt == 5     # init + 4 store events
 
 
 async def test_chain(circuit):
@@ -103,7 +136,7 @@ async def test_chain(circuit):
     def f4(f3):
         return f3+40000
 
-    @redzed.triggered
+    @redzed.trigger
     def output(f4):
         log.append(f4)
 

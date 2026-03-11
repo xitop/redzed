@@ -29,7 +29,7 @@ Table of contents
   :caption: Circuit construction
   :maxdepth: 2
 
-  blocks
+  block_trigger_formula
   events
   initializers
 

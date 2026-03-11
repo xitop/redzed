@@ -52,7 +52,7 @@ def test_no_restore_error(circuit):
             super().rz_restore_state(state)
 
     mem = StrMemory(
-        "m", initial=[redzed.RestoreState(), redzed.InitValue("zero")])
+        "m", initial=[redzed.PersistentState(), redzed.InitValue("zero")])
     storage = add_ts({mem.rz_key: None})
     circuit.set_persistent_storage(storage)
     with patch.object(mem, 'log_error', wraps=mem.log_error) as wrapped:

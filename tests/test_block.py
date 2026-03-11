@@ -64,7 +64,7 @@ def test_name_comment_str_key(circuit):
     """Test various string values."""
     blk1 = Noop('test1', comment='with comment')
     blk2 = Noop('test2')
-    blk3 = redzed.Memory('test3', initial=redzed.RestoreState())
+    blk3 = redzed.Memory('test3', initial=redzed.PersistentState())
     assert blk1.name == 'test1'
     assert blk1.comment == "with comment"
     assert str(blk1) == "<Noop test1 comment='with comment'>"

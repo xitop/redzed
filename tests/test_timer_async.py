@@ -18,14 +18,14 @@ async def test_clock(circuit):
     """Test a trivial clock signal generator."""
     logger1 = TimeLogger('logger1')
     logger2 = TimeLogger('logger2')
-    redzed.Timer('timer1', t_on=0.03, t_off=0.08)
+    redzed.Timer('timer1', t_on="30ms", t_off="80ms")
     redzed.Timer('timer2', t_period=0.15)
 
-    @redzed.triggered
+    @redzed.trigger
     def t1_l1(timer1):
         logger1.log(timer1)
 
-    @redzed.triggered
+    @redzed.trigger
     def t2_l2(timer2):
         logger2.log(timer2)
 
@@ -52,11 +52,11 @@ async def test_restartable(circuit):
     nlogger = TimeLogger('nlogger')
     nmono = redzed.Timer('ntimer', t_on=0.12, restartable=False)
 
-    @redzed.triggered
+    @redzed.trigger
     def r2r(rtimer):
         rlogger.log(rtimer)
 
-    @redzed.triggered
+    @redzed.trigger
     def n2n(ntimer):
         nlogger.log(ntimer)
 

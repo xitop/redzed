@@ -5,16 +5,21 @@
 Events
 ======
 
+
+Event sources and destinations
+==============================
+
 **Events are the main communication tool in a circuit**. Events are messages
 addressed to a block. They represent commands or requests.
 A precise description of supported events is the most important part of block's documentation.
 
-Events are often sent from a :deco:`triggered` function. These are called
+Events are often sent from a :deco:`trigger`-ed function. These are called
 internal events. External events are forwarded from the outside world
 by a :ref:`supporting task <Supporting tasks>` acting as an interface.
 This categorization is only logical. Circuit blocks do not distinguish
 between internal and external events. In both cases is the event
-delivered by calling :meth:`Block.event`.
+delivered by calling :meth:`Block.event` - directly or indirectly
+through the :func:`redzed.send_event` wrapper.
 
 When a valid event is received, the block handles it, changes its internal state
 and its output accordingly and returns a value. The output change may activate
@@ -62,27 +67,19 @@ is just a convention for events with these characteristics:
 If you are creating an own type of blocks, feel free to use the ``'_get_'`` prefix,
 but only for events that match these characteristics.
 
-First three of the following monitoring events are defined for all block types.
-
-_get_names
-----------
-``Block.event('_get_names')`` returns a dict with items ``'name'``, ``'comment'``
-and ``'type'`` containing block's name, block's comment and the name of the
-block type. Other items may be added in the future.
+First two of the following monitoring events are defined for all block types.
 
 
-_get_output
------------
+_get_info
+---------
 
-``Block.event('_get_output')`` calls :meth:`Block.get`
-and returns the current output.
+``Block.event('_get_info')`` returns a dict with items ``'name'``, ``'comment'``,
+``'type'`` containing block's name, comment and the name of the block
+type respectively. If the output values are not :const:`UNDEF`,
+there will be also items ``'output'`` and ``'previous'`` with the current
+and previous output values.
 
-
-_get_previous
--------------
-
-``Block.event('_get_previous')`` calls :meth:`Block.get_previous`
-and returns the previous output.
+Other items may be added in the future.
 
 
 _get_state
@@ -119,9 +116,9 @@ Examples (events)
   # m1_memory.get() now returns 123 (output value)
 
 
-  t1 = redzed.Timer("t1")
+  redzed.Timer("t1")
   ...
   # start a time interval:
   #   event type is 'start', event data is {'duration': '1m30s'}
-  t1.event('start', duration='1m30s')
+  redzed.send_event('t1', 'start', duration='1m30s')
   # now the timer's output is scheduled to be True for 90 seconds

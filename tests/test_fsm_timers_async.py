@@ -50,7 +50,7 @@ async def test_duration(circuit):
 
     logger = TimeLogger('logger', mstop=True)
 
-    @redzed.triggered
+    @redzed.trigger
     def log_output(vclock):
         nonlocal cnt
         logger.log(vclock == 'on')
@@ -95,7 +95,7 @@ async def test_start(circuit):
     logger = TimeLogger('logger', mstart=True, mstop=True)
     Delay('vclock', exit_begin=lambda: logger.log('b->e'), enter_end=circuit.shutdown)
 
-    @redzed.triggered
+    @redzed.trigger
     def slow_init_done(slow_init):
         logger.log(slow_init)
 
@@ -125,7 +125,7 @@ async def test_afterrun(circuit):
     logger = TimeLogger('logger', mstart=True, mstop=True)
     ar_fsm = AfterRun('ar', x_percentage = 25, enter_afterrun=lambda: logger.log('afterrun'))
 
-    @redzed.triggered
+    @redzed.trigger
     def monitor(ar):
         logger.log(ar)
 
@@ -140,4 +140,77 @@ async def test_afterrun(circuit):
         (0, False), (0, '--start--'), (0, True),
         (100, 'afterrun'), (125, False),
         (150, '--stop--') ]
+    logger.compare(LOG)
+
+
+@pytest.mark.parametrize('choose_long', [False, True])
+async def test_dynamic1(circuit, choose_long):
+    """Test dynamic state (after event)."""
+    class TestFSM(redzed.FSM):
+        STATES = [
+            "ready",
+            ("short", 0.01, "stop"),
+            ("long",  0.03, "stop"),
+            "stop"
+            ]
+        EVENTS = [
+            ["start", ["ready"], "delay"],
+            ]
+        def select_delay(self):
+            return "long" if choose_long else "short"
+        def enter_stop(self):
+            circuit.shutdown()
+
+    fsm = TestFSM('dyn')
+    logger = TimeLogger('logger', mstart=True, mstop=True, triggered_by=fsm)
+
+    async def tester():
+        fsm.event('start')
+        await asyncio.sleep(0.5)
+
+    await runtest(tester())
+
+    LOG = [
+        (0, 'ready'),
+        (0, '--start--'),
+        (0, 'long' if choose_long else 'short'),
+        (30 if choose_long else 10, 'stop'),
+        (30 if choose_long else 10, '--stop--')
+        ]
+
+    logger.compare(LOG)
+
+
+@pytest.mark.parametrize('choose_long', [False, True])
+async def test_dynamic2(circuit, choose_long):
+    """Test dynamic state (after timed state)."""
+    class TestFSM(redzed.FSM):
+        STATES = [
+            ["init", 0.01, "delay"],
+            ("short", 0.01, "stop"),
+            ("long",  0.03, "stop"),
+            "stop"
+            ]
+        EVENTS = []
+        def select_delay(self):
+            return "long" if choose_long else "short"
+        def enter_stop(self):
+            circuit.shutdown()
+
+    fsm = TestFSM('dyn')
+    logger = TimeLogger('logger', mstart=True, mstop=True, triggered_by=fsm)
+
+    async def tester():
+        await asyncio.sleep(0.5)
+
+    await runtest(tester())
+
+    LOG = [
+        (0, 'init'),
+        (0, '--start--'),
+        (10, 'long' if choose_long else 'short'),
+        (40 if choose_long else 20, 'stop'),
+        (40 if choose_long else 20, '--stop--')
+        ]
+
     logger.compare(LOG)

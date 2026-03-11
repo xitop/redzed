@@ -43,7 +43,7 @@ This tiny program prints "ding/dong" (the bell sound) in 1 second pace::
 
   rz.Timer('clk', comment="clock generator", t_period=1.0)
 
-  @rz.triggered
+  @rz.trigger
   def output_print(clk):
       print('     ..dong!' if clk else ' ding..')
 
@@ -82,7 +82,7 @@ one :class:`Trigger` and few custom functions (for input, evaluation, output)::
   temp = rz.DataPoll(
      'temp', comment='thermometer', func=measure_temperature, interval=1.2)
 
-  @rz.triggered
+  @rz.trigger
   def compare(temp):
       if temp < 22.0:
           heater.event('put', True)

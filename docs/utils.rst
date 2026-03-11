@@ -72,7 +72,7 @@ Conversions routines:
   When *approx* flag is set, the conversion rounds off the least significant part
   of the value to make the result shorter and better human readable.
 
-.. function:: time_period(period: Any, passthrough=(), zero_ok: bool = False) -> Any
+.. function:: time_period(period: object, passthrough=(), zero_ok: bool = False) -> Any
 
   Convert time period/duration given as a number or as a string with units.
 
@@ -129,7 +129,7 @@ for their human readability.
   :param str|Sequence[str] delim:
     Separator or terminator that delimits sub-intervals.
     This argument has the same format as *sep*.
-  :param Literal['date', 'time', 'datetime'] | None datatype:
+  :param Literal['date', 'time', 'datetime']|None datatype:
     Optional hint about selected data type. If not :const:`None`,
     the result of *parser* is checked for correct sequence length.
     If *datatype* is ``'date'``, a single date is accepted as

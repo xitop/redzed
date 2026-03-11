@@ -27,6 +27,8 @@ class Memory(_Validate, redzed.Block):
     Memory is typically used as an input block.
     """
 
+    RZ_STATE_IS_OUTPUT = True   # hint to prefer SF_OUTPUT over SF_EVENT, provisional
+
     def _event_store(self, edata: redzed.EventData) -> bool:
         """Validate and store a value."""
         evalue = edata['evalue']
@@ -39,14 +41,14 @@ class Memory(_Validate, redzed.Block):
         self._set_output(validated)
         return True
 
-    def rz_init(self, init_value: t.Any, /) -> None:
+    def rz_init(self, init_value: object, /) -> None:
         validated = self._validate(init_value)
         self._set_output(validated)
 
-    def rz_export_state(self) -> t.Any:
+    def rz_export_state(self) -> object:
         return self.get()
 
-    def rz_restore_state(self, state: t.Any, /) -> None:
+    def rz_restore_state(self, state: object, /) -> None:
         # Do not validate. *state* is already validated and thus possibly preprocessed.
         self._set_output(state)
 
@@ -61,7 +63,7 @@ class MemoryExp(_Validate, FSM):
     def __init__(
             self, *args,
             duration: float|str|None,
-            expired: t.Any = None,
+            expired: object = None,
             **kwargs) -> None:  # kwargs may contain a validator
         super().__init__(*args, t_valid=duration, **kwargs)
         try:
@@ -70,7 +72,7 @@ class MemoryExp(_Validate, FSM):
             err.add_note(f"{self}: The validator rejected the 'expired' argument {expired!r}")
             raise
 
-    def _store(self, validated: t.Any) -> None:
+    def _store(self, validated: object) -> None:
         if validated == self._expired:
             self._goto('expired')
         else:
@@ -89,7 +91,7 @@ class MemoryExp(_Validate, FSM):
         self._store(validated)
         return True
 
-    def rz_init(self, init_value: t.Any, /) -> None:
+    def rz_init(self, init_value: object, /) -> None:
         validated = self._validate(init_value)
         if validated == self._expired:
             super().rz_init('expired')
@@ -100,7 +102,7 @@ class MemoryExp(_Validate, FSM):
     def enter_expired(self) -> None:
         self.sdata.pop('memory', None)
 
-    def _set_output(self, output: t.Any) -> bool:
+    def _set_output(self, output: object) -> bool:
         return super()._set_output(
             self.sdata['memory'] if self.state == 'valid' else self._expired)
 
@@ -110,11 +112,13 @@ class DataPoll(redzed.Block):
     A source of sampled or computed values.
     """
 
+    RZ_STATE_IS_OUTPUT = True
+
     def __init__(
         self, *args,
-        func: Callable[[], t.Any],
+        func: Callable[[], object],
         interval: float|str,
-        retry_interval: None|float|str|Sequence[float|str] = None,
+        retry_interval: float|str|Sequence[float|str]|None = None,
         abort_after_failures: int = 0,
         **kwargs) -> None:
         self._func = func
@@ -173,10 +177,10 @@ class DataPoll(redzed.Block):
             await asyncio.sleep(interval)
         assert False, "Not reached"
 
-    def rz_init(self, init_value: t.Any, /) -> None:
+    def rz_init(self, init_value: object, /) -> None:
         self._set_output(init_value)
 
-    def rz_export_state(self) -> t.Any:
+    def rz_export_state(self) -> object:
         return self.get()
 
     rz_restore_state = rz_init

@@ -1,8 +1,8 @@
 .. currentmodule:: redzed
 
-=======
-Outputs
-=======
+===============
+Circuit outputs
+===============
 
 **Conventions used in this chapter:**
 
@@ -19,7 +19,7 @@ Outputs
 Stop functions
 ==============
 
-A common requirement is that an application should leave the controlled systems
+A common requirement is that an application should leave controlled systems
 or devices in a well-defined state after it terminates. This is achieved by sending
 appropriate values to output blocks during shutdown, so they are processed as last
 values before stopping. We call these values "stop values" and functions
@@ -38,9 +38,10 @@ or if a multiple values need to be sent.
   that by "output blocks" we mean the respective buffers if the blocks are asynchronous.
 
 Stop functions are called without arguments. Exceptions in stop functions are logged,
-but the shutdown will continue. When a stop function is called, triggers are already defunct
-and non-output blocks do not accept non-monitoring events. The stop function may
-check output values of all blocks using :meth:`Block.get`,
+but the shutdown will continue. Stop functions are run immediately before
+:meth:`Block.rz_stop` methods are called. At that moment, triggers are already
+defunct and non-output blocks do not accept non-monitoring events. The stop function
+may check output values of all blocks using :meth:`Block.get`,
 send :ref:`monitoring events <Monitoring events>` to all blocks
 and, of course, send any events to output blocks.
 
@@ -53,18 +54,18 @@ Sync outputs
   Call the function *func* when an ``'put'`` event arrives.
   The output of an :class:`!OutputFunc` block is always :const:`None`.
 
-  :param Callable[[Any], Any] func:
+  :param Callable[[object], object] func:
     Function to be invoked on each ``'put'`` event with the event data item ``'evalue'``
     as its only argument.
 
   :param validator: Optional :ref:`data validator <Output data validation>`.
-  :type validator: Callable[[Any], Any] | None
+  :type validator: Callable[[object], object]|None
 
-  :param Any stop_value:
+  :param object stop_value:
     If *stop_value* is given, it is processed as the last value before stopping.
     See the :ref:`stop functions <Stop functions>`.
 
-  :param str | redzed.Block | redzed.Formula | None triggered_by:
+  :param str|redzed.Block|redzed.Formula|None triggered_by:
 
     Convenience option. If not :const:`None`, create a :class:`Trigger` sending
     the output of *triggered_by* to this output block via ``'put'`` events.
@@ -122,7 +123,7 @@ Use a :class:`MemoryBuffer` with an :class:`OutputController`.
 
 .. caution::
 
-  In general, there are no warnings and no runtime errors when
+  In most cases there are no warnings and no runtime exceptions when
   output blocks are attached to buffers in a nonsensical way.
 
 
@@ -160,9 +161,9 @@ Worker mode
     instead of a standard queue.
 
   :param validator: Optional :ref:`data validator <Output data validation>`.
-  :type validator: Callable[[Any], Any] | None
+  :type validator: Callable[[object], object]|None
 
-  :param Any stop_value:
+  :param object stop_value:
     If *stop_value* is given, it is processed as the last value before stopping.
     See the :ref:`stop functions <Stop functions>`.
 
@@ -170,7 +171,7 @@ Worker mode
     to this buffer should be run with ``workers=1``, which is the default.
     With multiple workers, the *stop_value* might be not the last processed value overall.
 
-  :param str | redzed.Block | redzed.Formula | None triggered_by:
+  :param str|redzed.Block|redzed.Formula|None triggered_by:
 
     Convenience option. If not :const:`None`, create a :class:`Trigger` sending
     the output of *triggered_by* to this buffer via ``'put'`` events.
@@ -188,22 +189,23 @@ Worker mode
       Usage: ``size = queue_buffer.event('_get_size')``.
       Return the number of items in the buffer.
 
-  .. method:: attach_output(output = OutputWorker, **output_kwargs)
+  .. method:: attach_output(*, output = OutputWorker, **output_kwargs)
 
     Convenience option. Create an output block of type *output* that will fetch
     data from this buffer. The default block type is :class:`OutputWorker`.
     The output block will be created with *output_kwargs* arguments;
     please note:
 
+    - All arguments (including *name*) are keyword-only.
     - By default, the name will be derived from the buffer's name by appending
       a short ``"_io"`` suffix. Use ``name=...`` to set the name explicitly.
     - By default, the comment will be copied from the buffer.
       Use ``comment=...`` to override.
-    - The *buffer* argument will be set automatically. Do not include ``"buffer"``
+    - The *buffer* argument will be set automatically. Do not include *buffer*
       in *output_kwargs*.
 
-    This method returns *self*, i.e. the buffer object. If need be,
-    the output block object can be looked up by name with :meth:`Circuit.resolve_name`.
+    This method returns *self*, i.e. the buffer object. The output block object
+    can be looked up by name with :meth:`Circuit.resolve_name`.
 
 .. class:: OutputWorker(name, *, aw_func, buffer, workers=1, stop_timeout=..., **block_kwargs)
 
@@ -253,14 +255,14 @@ Controller mode
   and its value is always :const:`None`.
 
   :param validator: Optional :ref:`data validator <Output data validation>`.
-  :type validator: Callable[[Any], Any] | None
+  :type validator: Callable[[object], object]|None
 
-  :param Any stop_value:
+  :param object stop_value:
     If defined, the ``stop_value`` is inserted into the buffer during shutdown
     as the very last value. This allows to leave the controlled process
     in a well-defined state.
 
-  :param str | redzed.Block | redzed.Formula triggered_by:
+  :param str|redzed.Block|redzed.Formula triggered_by:
 
     Convenience option. Create a :class:`Trigger` sending the output of *triggered_by*
     to this buffer via ``'put'`` events. The block or formula can be given by its name.
@@ -276,7 +278,7 @@ Controller mode
       Usage: ``size = memory_buffer.event('_get_size')``.
       Return the number of items in the buffer which is either 0 or 1.
 
-  .. method:: attach_output(output = OutputController, **output_kwargs)
+  .. method:: attach_output(*, output = OutputController, **output_kwargs)
 
     This method is identical to :meth:`QueueBuffer.attach_output`,
     except that the default output block type is :class:`OutputController`.

@@ -7,15 +7,15 @@ Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
-__all__ = ['Block', 'CircuitShutDown', 'EventData', 'PersistenceFlags', 'UnknownEvent']
+__all__ = ['Block', 'CircuitShutDown', 'EventData', 'UnknownEvent']
 
 import asyncio
 from collections.abc import Callable
-import enum
 import logging
 import typing as t
 
 from .base_block import BlockOrFormula
+
 from .debug import get_debug_level
 from . import initializers
 from .undef import UNDEF
@@ -36,15 +36,6 @@ class CircuitShutDown(RuntimeError):
     """Cannot perform an action after shutdown."""
 
 
-class PersistenceFlags(enum.IntFlag):
-    """When and how to save block's internal state to the persistent storage."""
-    ENABLED = enum.auto()   # persistent state is enabled
-    # additional options, they may be set only if ENABLED,
-    # EVENT and INTERVAL are mutually exclusive
-    EVENT = enum.auto()     # save after each event
-    INTERVAL = enum.auto()  # save periodically
-
-
 _INIT_TYPES = (initializers.SyncInitializer, initializers.AsyncInitializer)
 
 
@@ -56,11 +47,10 @@ class Block(BlockOrFormula):
     to them. They have one output depending solely on the state.
     """
 
-    # event handling methods _event_NAME
-    _edt_handlers: dict[str, Callable[[t.Self, EventData], t.Any]]
-    # class attr RZ_PERSISTENCE: is persistent state supported?
-    # instance attr rz_persistence: see PersistenceFlags
-    RZ_PERSISTENCE: bool
+    _edt_handlers: dict[str, Callable[[t.Self, EventData], object]]
+                                # event handling methods _event_NAME
+    RZ_PERSISTENCE: bool        # class attr: is persistent state supported?
+
 
     def __init_subclass__(cls, *args, **kwargs) -> None:
         """
@@ -85,7 +75,7 @@ class Block(BlockOrFormula):
 
     def __init__(
             self, *args,
-            initial: t.Any = UNDEF,
+            initial: object = UNDEF,
             stop_timeout: float|str|None = None,
             always_trigger: bool = False,
             **kwargs
@@ -95,7 +85,8 @@ class Block(BlockOrFormula):
 
         Check if given arguments are valid for the particular block type.
         """
-        if type(self) is Block:     # pylint: disable=unidiomatic-typecheck
+        cls = type(self)
+        if cls is Block:
             raise TypeError("Cannot instantiate the base class 'Block'")
         # remove x_arg=... and X_ARG=... from kwargs before calling super().__init__
         for key in list(kwargs):
@@ -114,7 +105,6 @@ class Block(BlockOrFormula):
                     initial = initializers.InitValue(initial)
                 self.rz_initializers = [initial]
             elif any(isinstance(init, _INIT_TYPES) for init in initial):
-                # sequence of initializers
                 self.rz_initializers = [
                     init if isinstance(init, _INIT_TYPES) else initializers.InitValue(init)
                     for init in initial]
@@ -124,21 +114,28 @@ class Block(BlockOrFormula):
 
         restore_initializers = [
             init for init in self.rz_initializers
-            if isinstance(init, initializers.RestoreState)]
-        self.rz_persistence = PersistenceFlags(0)
-        if restore_initializers:
-            if not type(self).RZ_PERSISTENCE:
+            if isinstance(init, initializers.PersistentState)]
+        if not restore_initializers:
+            self.rz_save_flags = initializers.SaveFlags(0)
+        else:
+            if not cls.RZ_PERSISTENCE:
                 raise TypeError(
-                    f"{self}: 'RestoreState' initializer is not supported by this block type")
+                    f"{self}: 'PersistentState' initializer is not supported "
+                    + "by this block type")
             if len(restore_initializers) != 1:
-                raise ValueError("Multiple 'RestoreState' initializers are not allowed")
-            self.rz_persistence |= PersistenceFlags.ENABLED   # keep the int type
-            init = restore_initializers[0]
-            checkpoints = init.rz_checkpoints
-            if checkpoints == 'event':
-                self.rz_persistence |= PersistenceFlags.EVENT
-            elif checkpoints == 'interval':
-                self.rz_persistence |= PersistenceFlags.INTERVAL
+                raise ValueError("Multiple 'PersistentState' initializers are not allowed")
+            restore = restore_initializers[0]
+            if restore.rz_save_flags is not None:
+                self.rz_save_flags = restore.rz_save_flags | initializers.SaveFlags.ENABLED
+            else:
+                # autoconfig
+                if getattr(cls, 'RZ_STATE_IS_OUTPUT', False):
+                    self.rz_save_flags = initializers.SaveFlags.OUTPUT
+                else:
+                    self.rz_save_flags = initializers.SaveFlags.EVENT
+                if restore.rz_expiration is not None:
+                    self.rz_save_flags |= initializers.SaveFlags.INTERVAL
+
         self.rz_key = f"{self.type_name}:{self.name}"
 
         has_astop = self.has_method('rz_astop')
@@ -157,9 +154,9 @@ class Block(BlockOrFormula):
             self.rz_stop_timeout = time_period(stop_timeout)
         self._etypes_active: set[str] = set()   # events in-progress, disallow event recursion
         self._always_trigger = bool(always_trigger)
-        self._init_task: asyncio.Task[t.Any]|None = None
+        self._init_task: asyncio.Task[object]|None = None
 
-    def rz_set_inittask(self, task: asyncio.Task[t.Any]) -> None:
+    def rz_set_inittask(self, task: asyncio.Task[object]) -> None:
         """
         Give a reference to the task initializing this block.
 
@@ -167,7 +164,7 @@ class Block(BlockOrFormula):
         """
         self._init_task = task
 
-    def _set_output(self, output: t.Any) -> bool:
+    def _set_output(self, output: object) -> bool:
         """
         Set output, recalculate dependent formulas, run affected triggers.
         """
@@ -181,6 +178,8 @@ class Block(BlockOrFormula):
                 self.log_debug("Output: %r (same as before)", output)
             else:
                 return False
+        if self.rz_save_flags & initializers.SaveFlags.OUTPUT:
+            self.circuit.save_persistent_state(self)
         triggers = self._dependent_triggers.copy()
         for frm in self._dependent_formulas:
             triggers |= frm.evaluate()
@@ -197,24 +196,24 @@ class Block(BlockOrFormula):
         if not self.is_initialized() and not self.has_method('rz_init'):
             self._set_output(None)
 
-    def _default_event_handler(self, etype: str, edata: EventData) -> t.Any:
+    def _default_event_handler(self, etype: str, edata: EventData) -> object:
         """Default event handler."""
         raise UnknownEvent(f"{self}: Unknown event type {etype!r}")
 
-    # note the double underscore: ...event_ + _get...
-    def _event__get_names(self, _edata: EventData) -> t.Any:
-        """Handle '_get_names' monitoring event."""
-        return {'type': self.type_name, 'name': self.name, 'comment': self.comment}
+    # note the double underscore: _event_ + _get...
+    def _event__get_info(self, _edata: EventData) -> dict[str, object]:
+        """Handle '_get_info' monitoring event."""
+        info: dict[str, object] = {
+            'name': self.name, 'comment': self.comment, 'type': self.type_name
+            }
+        cur, prev = self.get(with_previous=True)
+        if cur is not UNDEF:
+            info['output'] = cur
+        if prev is not UNDEF:
+            info['previous'] = prev
+        return info
 
-    def _event__get_output(self, _edata: EventData) -> t.Any:
-        """Handle '_get_output' monitoring event."""
-        return self.get()
-
-    def _event__get_previous(self, _edata: EventData) -> t.Any:
-        """Handle '_get_previous' monitoring event."""
-        return self.get_previous()
-
-    def _event__get_state(self, _edata: EventData) -> t.Any:
+    def _event__get_state(self, _edata: EventData) -> object:
         """Handle '_get_state' monitoring event."""
         if not self.has_method('rz_export_state'):
             raise UnknownEvent(f"{self.type_name} blocks do not support this event")
@@ -226,7 +225,7 @@ class Block(BlockOrFormula):
     def rz_is_shut_down(self) -> bool:
         return self.circuit.is_shut_down()
 
-    def event(self, etype: str, /, evalue: t.Any = UNDEF, **edata: t.Any) -> t.Any:
+    def event(self, etype: str, /, evalue: object = UNDEF, **edata: object) -> object:
         """
         An entry point for events.
 
@@ -234,7 +233,7 @@ class Block(BlockOrFormula):
         Otherwise call the _default_event_handler() as the last resort.
         """
         check_identifier(etype, "Event type")
-        if not etype.startswith('_get_') and self.rz_is_shut_down():
+        if (not_monitoring := not etype.startswith('_get_')) and self.rz_is_shut_down():
             raise CircuitShutDown("The circuit was shut down")
 
         if evalue is not UNDEF:
@@ -258,7 +257,7 @@ class Block(BlockOrFormula):
             raise exc
         self._etypes_active.add(etype)
         try:
-            if not self.is_initialized():
+            if not self.is_initialized() and not_monitoring:
                 # We will allow the event, because:
                 #   - some blocks need an event for their initialization
                 #   - this event could have arrived during initialization by chance or race
@@ -280,8 +279,8 @@ class Block(BlockOrFormula):
                 if isinstance(err, KeyError) and err.args[0] == 'evalue':
                     err.add_note("A required event value is almost certainly missing")
                 raise
-            if (self.rz_persistence & PersistenceFlags.EVENT
-                    and not etype.startswith('_get_') and self.is_initialized()):
+            if (self.rz_save_flags & initializers.SaveFlags.EVENT
+                    and not_monitoring and self.is_initialized()):
                 self.circuit.save_persistent_state(self)
             self.log_debug2("Event '%s' returned: %r", etype, retval)
             return retval

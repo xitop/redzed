@@ -41,9 +41,9 @@ class TimeDate(redzed.Block):
     def __init__(self, *args, utc: bool = False, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._cron = _get_cron(utc)
-        self._times: ti.TimeInterval | None = None
-        self._dates: ti.DateInterval | None = None
-        self._weekdays: Set[int] | None = None
+        self._times: ti.TimeInterval|None = None
+        self._dates: ti.DateInterval|None = None
+        self._weekdays: Set[int]|None = None
 
     def _reconfig(self, config: _ConfigType) -> None:
         """Reconfigure the block."""

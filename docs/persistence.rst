@@ -8,7 +8,8 @@ The goal of this feature is to make a continuation after an application
 restart as seamless as possible. For a single block it means that its
 :ref:`internal state <Internal state and output>` is saved to a non-volatile
 storage when the application stops and the saved state is restored from that
-storage on the next start.
+storage on the next start. Restoring the state automatically sets the output
+value, but not the previous output value.
 
 
 Requirements
@@ -34,10 +35,10 @@ Requirements
 Enabling
 ========
 
-The saved state is restored by :class:`RestoreState`. If the above mentioned
+The saved state is restored by :class:`PersistentState`. If the above mentioned
 requirements are met, including this initializer in block's *initial* argument
 activates both saving and restoring. The internal state is then automatically
-saved at shutdown and restored when the :class:`!RestoreState` is activated.
+saved at shutdown and loaded when the :class:`!PersistentState` is activated.
 
 Checkpointing
 -------------
@@ -45,8 +46,7 @@ Checkpointing
 It's a method of improving fault-tolerance of long-running applications.
 With checkpointing, the internal state is saved not only at shutdown,
 but also during the runtime. This increases the chance of having
-somewhat recent saved data even if the application was not shut down
-properly, e.g. due to a power outage.
+recent saved data even if the application was not shut down properly,
+e.g. due to a power outage.
 
-For details please refer to the *checkpoints* parameter
-of :class:`RestoreState`.
+For details please refer to the *save_flags* parameter of :class:`PersistentState`.

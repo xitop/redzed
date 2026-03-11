@@ -87,7 +87,7 @@ Circuit API
   with derived subtypes included.
 
   The returned iterable might be a generator. Convert the result
-  to e.g. a list if necessary for storage or further processing.
+  e.g. to a list if necessary for storage or further processing.
 
 .. method:: Circuit.resolve_name(ref: Block|Formula|str) -> Block|Formula
 
@@ -147,36 +147,106 @@ Circuit API
 3. Persistent storage
 ---------------------
 
-.. method:: Circuit.set_persistent_storage(persistent_dict, *, sync_time=None) -> None
+.. method:: Circuit.set_persistent_storage(persistent_dict, *, save_interval=None, close_callback=None) -> None
 
   Setup the :ref:`persistent state <Persistent state>` data storage.
   This must be done before the runner is started.
   Of course, the same storage must be used each time.
 
-  :param MutableMapping[str, Any] | None persistent_dict:
+  :param MutableMapping[str, object]|None persistent_dict:
     The *persistent_dict* argument should be a dictionary-like object backed by
     a disk file or similar non-volatile storage. It may be also
     :const:`None` to leave the feature disabled.
 
-  :param None | float | str sync_time:
-    The frequency of checkpointing for blocks that have opted-in
-    with ``checkpoints='interval'`` argument given to their :class:`RestoreState`
-    initializer. Checkpointing synchronizes the *persistent_dict*
-    with the in-memory states every *sync_time* seconds.
-    If there are no blocks to sync, the checkpointing task
-    will not run at all.
+    Redzed provides :class:`redzed.utils.PersistentDict`.
+    As an alternative, the Python standard library offers the
+    `shelve module [↗] <https://docs.python.org/3/library/shelve.html>`_
+
+  :param float|str|None save_interval:
+    *save_interval* controls the frequency of checkpointing for blocks that have
+    opted-in with :attr:`!SF_INTERVAL` option in their :class:`PersistentState`
+    settings. Checkpointing saves the in-memory states of these blocks
+    to *persistent_dict* every *save_interval* seconds.
 
     Default interval is 251 seconds (slightly more than four minutes).
     Any argument other than :const:`None` overrides this default.
     Shortest allowed interval is not set, but keep in mind that
     frequent checkpointing degrades the performance.
 
-  The *persistent_dict* must be ready to use. If it needs to be closed
-  after use, the application is responsible for that.
+  :param Callable|None close_callback:
+    Register a close/cleanup function if the storage has one.
+    The function will be called without arguments when the storage
+    is no longer in use by the circuit. Many storage types require this
+    e.g. to flush buffers and close files. For an alternative method see the
+    `atexit module [↗] <https://docs.python.org/3/library/atexit.html>`_
 
-  The Python standard library offers the `shelve module [↗] <https://docs.python.org/3/library/shelve.html>`_
-  and the corresponding documentation mentions another helpful
-  `recipe [↗] <https://code.activestate.com/recipes/576642-persistent-dict-with-multiple-standard-file-format/>`_.
+.. method:: Circuit.get_persistent_storage() -> Mapping[str, object]|None
+
+  Return a *read-only* proxy of the persistent storage
+  set by :meth:`Circuit.set_persistent_storage`.
+  Return None if no storage is available.
+
+.. class:: redzed.utils.PersistentDict(datafile, format=None, *, sync_time=10.0, error_callback=None)
+
+  Create a :type:`!dict` compatible object. Populate if with data
+  loaded from *datafile*. Save any modifications back to the *datafile*.
+
+  :param str datafile:
+    File name of the data file. Always use an absolute path.
+    The file is updated atomically using temporary files.
+    The parent directory must be writable.
+
+  :param Literal['json', 'pickle', None] format:
+    Data serialization format. Supported are ``'json'`` and ``'pickle'``.
+
+    The format can be explicitly set or derived from the file name.
+    If *format* is unset (:const:`None`), the format is set
+    according to *datafile* suffix. Recognized are:
+    ``'.pkl'``, ``'.pickle'`` and ``'.json'``. Using other
+    suffixes requires an explicit *format* setting.
+
+    - `[↗] JSON <https://docs.python.org/3/library/json.html>`_ produces
+      human readable text files. JSON is a wide-spread standard.
+      Its disadvantage is that only the very basic data types
+      (None, booleans, numbers, strings) and structures (lists and dicts,
+      possibly nested) are supported. The relation between Python
+      and JSON types is not one-to-one; e.g. if you save a tuple,
+      you will load a list.
+    - `[↗] Pickle <https://docs.python.org/3/library/pickle.html>`_ produces
+      binary files. It is fast and can handle a wide range of data types
+      and structures. Unlike JSON, pickle is Python specific. Please,
+      pay attention to the security warning (*"Only unpickle data you trust"*)
+      on the linked web page.
+
+  :param float|str|None sync_time:
+    :class:`!PersistentDict` modifications are normally cached for better performance.
+    *sync_time* is max. time in seconds between a dict modification and a file save.
+    It can be given as a :ref:`string with time units <Time durations with units>` too.
+    When set to zero, data is saved immediately without caching.
+
+  :param error_callback:
+    Optional callable taking one argument. Every time an error occurs,
+    the exception is logged, this function (if defined) is called with
+    the exception as its sole argument and the :class:`!PersistentDict`
+    code continues and tries to retry or recover from the error.
+
+    If the primary concern is to keep the application running,
+    no *error_callback* is needed. OTOH, if the persistent data are so important
+    that errors are critical, use: ``error_callback=circuit.abort``.
+
+    Note that a strict *error_callback* setting that will not permit
+    :exc:`FileNotFound` prevents the initial run on which the *datafile*
+    would be created for the first time.
+
+  .. method:: flush() -> None
+
+    Flush the cache, i.e. write modifications to the file.
+
+  Example of usage::
+
+    storage = rz.utils.PersistentDict('/path/to/file.json')
+    circuit.set_persistent_storage(storage, close_callback=storage.flush)
+
 
 .. method:: Circuit.save_persistent_state(blk: Block) -> None
 
@@ -184,9 +254,8 @@ Circuit API
   Application code rarely needs this function, because the state
   is saved automatically.
 
-  This is a low-level save function. The caller has to check
-  that the :attr:`Block.rz_persistence` flag is set before saving.
-
+  This is a low-level save function. The caller must check
+  the :attr:`Block.rz_save_flags` value before saving.
   Errors during saving are logged, but suppressed.
 
 

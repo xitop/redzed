@@ -45,11 +45,11 @@ async def test_no_recursive_events1(circuit):
     mem1 = redzed.Memory("memory1", initial=0)
     mem2 = redzed.Memory("memory2", initial=0)
 
-    @redzed.triggered
+    @redzed.trigger
     def mem1to2(memory1):
         mem2.event('store', memory1 + 1)
 
-    @redzed.triggered
+    @redzed.trigger
     def mem2to1(memory2):
         mem1.event('store', memory2 + 1)
 
@@ -81,4 +81,4 @@ async def test_no_recursive_events2(circuit):
     assert mem.get() == 5+3+2+1
 
     with Exc(RuntimeError, match="event of the same type"):
-        mem.event('store3', 105)    # 3->2->1->3 !!!
+        mem.event('store3', 105)    # 3->2->1->3 !

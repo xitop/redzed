@@ -173,7 +173,7 @@ async def test_loop1(circuit):
     """Test a loop in the circuit. Error at initialization."""
     mem = redzed.Memory('mem', initial=0, validator=lambda x: x+1)
     repeater = redzed.Repeat('rpt', dest=mem, interval="10ms")
-    @redzed.triggered
+    @redzed.trigger
     def mem2repeat(mem):
         repeater.event('store', mem)
 
@@ -186,7 +186,7 @@ async def test_loop2(circuit):
     """Test a loop in the circuit. Error during runtime."""
     mem = redzed.Memory('mem', initial=0, validator=lambda x: x+1)
     repeater = redzed.Repeat('rpt', dest=mem, interval="10ms")
-    @redzed.triggered
+    @redzed.trigger
     def mem2repeat(mem):
         if mem > 10:
             repeater.event('store', mem)

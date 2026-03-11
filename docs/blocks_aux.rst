@@ -51,11 +51,11 @@ Auxiliary blocks
 
   Periodically repeat the last received event.
 
-  :param redzed.Block | str dest:
+  :param redzed.Block|str dest:
     destination block, an instance or its name
-  :param float | str interval:
+  :param float|str interval:
     default time interval between repetitions; can be overridden per event
-  :param int | None count:
+  :param int|None count:
     optional limit for repetition count, the original event is not counted.
     This limit can be overridden as well.
   :param float jitter_pct:

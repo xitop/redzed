@@ -4,20 +4,24 @@
 Finite-State Machines
 =====================
 
-A Finite-State Machine (**FSM**) is a highly customizable logic block.
-A basic understanding of the Finite-State Machine concept is helpful.
+
+FSM introduction
+================
+
+A basic understanding of the Finite-State Machine concept is assumed.
 There are many tutorials available on the Internet.
 
-A Finite-State Machine is defined by:
+A Finite-State Machine ("**FSM**") is defined by:
 
 - set of possible states, one of them is the initial state
 - set of recognized events; events trigger transitions from one state to another
 - a control table called a transition table
 
-An FSM block implements several additional features:
+Redzed's :class:`FSM` block implements several additional features and extensions:
 
 - persistent state across restarts
 - timed states
+- dynamically selected states
 - conditionally accepted events
 - entry and exit actions
 
@@ -34,9 +38,6 @@ An FSM block implements several additional features:
 
   In this chapter by 'state' and 'event' we usually mean an FSM state
   and an FSM event respectively.
-
-FSM introduction
-================
 
 Let's start with a simple example::
 
@@ -64,7 +65,7 @@ When the event 'push' occurs in the 'unlocked' state, the FSM
 makes a transition to the 'locked' state.
 
 There are no other state transitions defined. For example, when the
-turnstile is 'unlocked', the 'coin' event will have no effect.
+turnstile is 'locked', the 'push' event will have no effect.
 We may say that an event is not accepted, not allowed or even rejected
 in certain state, but it's a normal FSM operation - not an error.
 
@@ -77,7 +78,9 @@ A new FSM is type created by subclassing the base class.
 
 .. class:: FSM
 
-  Base class for creating FSMs.
+  Base class for creating FSMs. An :class:`!FSM` block is a highly customizable
+  logic block. In circuit theory, a Finite-State Machine is a mathematical model
+  of *sequential logic*.
 
   Subclasses must define two class attributes:
 
@@ -89,6 +92,7 @@ A new FSM is type created by subclassing the base class.
   - :ref:`state entry and exit actions <State entry and exit actions>`
   - :ref:`conditions for event acceptance <Conditional events>`
   - :ref:`timed state duration setters <Timed state duration>`
+  - :ref:`dynamic state selector <Dynamic state>`
 
 
 States, events, transitions
@@ -107,26 +111,52 @@ but using the same name for both is discouraged.
 The :meth:`FSM.event` method returns :const:`True` for accepted FSM events
 and :const:`False` for rejected FSM events.
 
-In Redzed, there are also *timed states*. A timed state has a timer
-associated with it. After certain time, the timer generates a synthetic event
-causing a transition to another state.
 
+Dynamically selected states
++++++++++++++++++++++++++++
+
+A dynamically selected state ("dynamic state" for short) is a pseudo-state that
+acts as a placeholder for a computed next state. A dynamic states is identified
+by its name (string) just like any other state, but it is not a valid FSM state.
+It cannot become a current state and cannot have enter or exit actions.
+
+Every time a transition to some dynamic state ``"DSTATE"`` should take place,
+a corresponding :ref:`method <Dynamic state>` is called to compute the real
+(i.e. non-dynamic) state to be entered instead. The existence of the
+special :meth:`FSM.select_DSTATE` method makes a state dynamic.
+
+
+Control tables
+--------------
+
+The transition table is defined by :attr:`STATES` and :attr:`EVENTS`:
 
 .. attribute:: FSM.STATES
   :type: Sequence[str|Sequence]
 
   Class attribute.
 
-  A :abbr:`sequence (a list or tuple)` of all valid states, timed and non-timed.
-  The very first item in this list is the default initial state.
+  A :abbr:`sequence (a list or tuple)` of all valid states, both regular and timed.
+  Do not list dynamic states here. The very first item in this list is the default
+  initial state.
 
-  A regular state is given by its name (string). A timed state is defined by
-  a sequence of three values::
+  **Regular states**
 
-    # timed_state: str
-    # default_duration: str | float | None
-    # next_state: str
-    [timed_state, default_duration, next_state]
+  Regular states are given by their name (string).
+
+  **Timed states**
+
+  A timed state has a timer associated with it. After certain time,
+  the timer generates a synthetic event causing an unconditional transition
+  to next state.
+
+  A timed state is defined by a sequence of three values::
+
+    # timed state definition
+    #   timed_state_name: str
+    #   default_duration: str|float|None
+    #   next_state (may be dynamic): str
+    (timed_state_name, default_duration, next_state)
 
   The default duration can be overridden statically in an instance
   and also dynamically at runtime. Refer to: :ref:`Duration of timed state`.
@@ -140,8 +170,8 @@ causing a transition to another state.
   the sequence has three items::
 
     # event: str
-    # states: Sequence[str] | Literal[...]
-    # next_state: str | None
+    # states: Sequence[str]|Literal[...]
+    # next_state (may be dynamic): str|None
     [event, states, next_state]
 
   *states* (item 2) define in which states will the *event* (item 1)
@@ -197,12 +227,13 @@ control tables.
 Duration of timed state
 -----------------------
 
-When a timed state is entered, its timer is set. The duration of this time period
-is taken from the first available source that is not :const:`None`. From the
-highest priority to the lowest:
+When a timed state is entered, its timer is set. The timer's duration
+is taken from the first available source that is not :const:`None`.
+Each of them is suitable for a different use case type. From highest
+priority to the lowest:
 
 1. the ``'duration'`` item in the event data of the event that
-   caused the transfer to a timed state
+   caused the transition to a timed state
 2. result of :meth:`FSM.duration_TSTATE` call
 3. duration set in the instance with a *t_TSTATE* :ref:`parameter <FSM parameters>`
 4. default set in the :attr:`FSM.STATES` table
@@ -232,7 +263,7 @@ Additional internal state data
 ------------------------------
 
 .. attribute:: FSM.sdata
-  :type: dict[str, Any]
+  :type: dict[str, object]
 
   In some cases the internal state consists of more values than just the current
   FSM state and the timer state. This additional data should be stored here
@@ -269,6 +300,12 @@ Supported are:
 - :ref:`Computation of timed state duration<Timed state duration>`.
   These hooks are named ``duration_TSTATE`` where ``TSTATE``
   is a timed state name.
+- :ref:`Dynamic state selectors <Dynamic state>`.
+  These hooks are named ``select_DSTATE`` where ``DSTATE``
+  is a dynamic pseudo-state name.
+
+Incorrectly formed names (e.g. ``enter_foo``, where ``foo`` is not a state)
+will be rejected with an error.
 
 FSM hooks can exist as methods having the appropriate hook name defined within the class.
 With exception of the ``duration_TSTATE`` hooks, they can be defined also per instance
@@ -284,7 +321,7 @@ or a sequence of functions.
 Call arguments
 ++++++++++++++
 
-Hooks are called either with zero or with exactly one argument depending on
+Hooks are called either with no arguments or with one argument depending on
 how they were defined. The `self` parameter in methods is not counted.
 The parameter must be positional. i.e. not keyword-only,
 nor :abbr:`variadic (*args or **kwargs)`.
@@ -312,14 +349,14 @@ The actions may be defined as:
 
 - methods:
 
-  .. method:: FSM.enter_STATE() -> Any
-  .. method:: FSM.enter_STATE(edata) -> Any
+  .. method:: FSM.enter_STATE() -> object
+  .. method:: FSM.enter_STATE(edata) -> object
     :noindex:
 
     Optional entry action for ``STATE``.
 
-  .. method:: FSM.exit_STATE() -> Any
-  .. method:: FSM.exit_STATE(edata) -> Any
+  .. method:: FSM.exit_STATE() -> object
+  .. method:: FSM.exit_STATE(edata) -> object
     :noindex:
 
     Optional exit action for ``STATE``.
@@ -355,7 +392,7 @@ These functions may be defined as:
   of functions.
 
 If there exist multiple functions, the evaluation is short-circuited.
-When one function returns boolean false, the event is immediately rejected and
+When one function returns boolean false, the event is rejected and
 no other functions will be called. These functions should have no side effects.
 
 
@@ -364,14 +401,27 @@ Timed state duration
 
 - this hook can be defined only as a method:
 
-  .. method:: FSM.duration_TSTATE() -> float | str | None
-  .. method:: FSM.duration_TSTATE(edata) -> float | str | None
+  .. method:: FSM.duration_TSTATE() -> float|str|None
+  .. method:: FSM.duration_TSTATE(edata) -> float|str|None
     :noindex:
 
     An optional method computing the duration of a timed state.
     It should return either the duration of the ``TSTATE`` in seconds
     or :const:`None` to indicate that the default duration
     should be used instead. See also: :ref:`Duration of timed state`.
+
+
+Dynamic state
++++++++++++++
+
+- this hook can be defined only as a method:
+
+  .. method:: FSM.select_DSTATE() -> str
+  .. method:: FSM.select_DSTATE(edata) -> str
+    :noindex:
+
+    This method must return the name of a state to be entered
+    instead of ``DSTATE``. The new state cannot be dynamic.
 
 
 FSM examples
@@ -381,7 +431,7 @@ FSM examples
 
 :class:`Timer` source (some checks omitted for brevity)::
 
-  class Timer(fsm.FSM):
+  class Timer(redzed.FSM):
       STATES = [
           ['off', float("inf"), 'on'],
           ['on', float("inf"), 'off']]
@@ -453,7 +503,9 @@ from the :class:`FSM` class.
 state and event names.
 
 - ``t_TSTATE=duration``
-    See: :attr:`FSM.STATES`
+    Override for the default duration of ``TSTATE``; see "timed states" in :attr:`FSM.STATES`.
+    The value must be a number of seconds
+    or a :ref:`string with time units <Time durations with units>`.
 
 - ``cond_EVENT=function``
     (sequence of functions is also accepted, e.g. ``cond_EVENT=[func1, func2, ... ]``)
@@ -469,7 +521,8 @@ state and event names.
 - ``initial=...``
     This parameter sets the initial FSM state. Default is the first state
     listed in :attr:`FSM.STATES`. The *initial* argument also controls
-    the persistent state which can be enabled using :class:`RestoreState`.
+    the state persistence which can be enabled by using
+    :class:`PersistentState` as an initializer.
 
     See: :ref:`Block initializers <Initializers>`
 
@@ -480,8 +533,8 @@ FSM Initialization rules
 During initialization, i.e. when the very first state is entered:
 
 - ``exit_STATE`` is not executed, because there is no ``STATE`` to exit.
-- ``cond_EVENT`` is not executed, because the first state needs
-  to be entered unconditionally.
+- ``cond_EVENT`` is not executed, because the first state is
+  entered unconditionally.
 - ``enter_STATE`` is executed except when initializing from saved (persistent)
   state. Initialization from saved state is a continuation of work
   in a state that was already entered in the past.

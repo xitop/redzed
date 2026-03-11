@@ -123,7 +123,7 @@ Periodic events
     }
     redzed.TimeDate("example", initial=example_cfg)
 
-  This block is configured by an initial value of type dict (``Mapping[str, None | Sequence]``)
+  This block is configured by an initial value of type dict (``Mapping[str, Sequence|None]``)
   with items named ``'times'``, ``'dates'`` and ``'weekdays'``.
 
   - *config['times']* - optional :ref:`time interval<Ranges (sub-intervals) and intervals>`

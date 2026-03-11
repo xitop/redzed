@@ -99,7 +99,7 @@ The first valid output is obtained from initializers. See the next section.
 Initial values
 --------------
 
-**Parameter**: **initial** (Initializer | Sequence[Initializer]) - block initializer(s)
+**Parameter**: **initial** (Initializer|Sequence[Initializer]) - block initializer(s)
 
 Some blocks do not accept the *initial* argument, because their internal state
 is not adjustable (e.g. determined by current date or time).
@@ -119,37 +119,76 @@ the process stops.
 Triggers
 ========
 
-There are two equivalent ways to define a trigger. The decorator is preferred for its convenience.
-
-.. decorator:: triggered
-
-  Create a :class:`Trigger` for the decorated function.
-  The function itself is unchanged.
-
-.. class:: Trigger(func: Callable[..., Any])
+.. class:: Trigger(func: Callable[..., object])
   :final:
 
-  A circuit component monitoring and acting upon output changes in referenced blocks
-  or formulas.
+  A circuit component monitoring and acting upon output changes in referenced
+  circuit blocks or formulas (commonly named "sources").
 
   A ``Trigger`` does not have a name nor an output. It's the only such circuit component type.
 
-  Output changes in blocks and formulas referenced by the function *func* trigger
+  Output changes in sources referenced by the function *func* trigger
   a function call with current output values as function's arguments.
   The first function call will take place when none of the arguments is :const:`UNDEF`.
-  The :ref:`references to circuit blocks or formulas <Function parameters in Triggers and Formulas>`
-  are auto-detected from the function's signature. The return value of the function
+  The :ref:`sources are auto-detected <Function parameters in Triggers and Formulas>`
+  from the function's signature. The return value of the function
   will be ignored. An exception raised in the function will abort
   the :ref:`runner <Circuit runner>`.
 
   The main purpose of a triggered function is to perform some action if certain conditions
   are met, e.g. to send an event to other block(s), often to an output block.
 
+.. decorator:: trigger
+
+  Create a :class:`Trigger` for the decorated function.
+  The function itself is unchanged.
+
+---
+
+The two ways to define a trigger are equivalent.
+The class allows to write one-liners::
+
+  redzed.Trigger(lambda source: dest_blk.event('put', source))
+
+and the decorator is preferred for everything that does not fit into one line::
+
+  @redzed.trigger
+  def _cond_trigger(source):
+      if enable_blk.get():
+          redzed.send_event('dest', 'put', source)
+
 
 Formulas
 ========
 
+Formulas are like blocks with computed output value. Similar to logic blocks,
+formulas are given name and comment and their output can be queried.
+
 There are two ways to define a formula.
+
+
+.. class:: Formula(name: str|None = None, *, func: Callable, comment: str|None = None)
+  :final:
+
+  Compute a value.
+
+  Formulas follow the same :ref:`naming rules <Setting the name>` as logic blocks,
+  except that *name* and *comment* are not mandatory. If omitted, they will
+  be taken from the *func*\'s name and docstring as documented in :deco:`formula`.
+
+  All parameters of the function *func*
+  :ref:`refer to outputs <Function parameters in Triggers and Formulas>`
+  of other circuit blocks or formulas. When any of them changes, the :class:`!Formula`
+  block calls the function and the returned value becomes Formula's output value.
+
+  During the circuit initialization, if any of the arguments is still :const:`UNDEF`,
+  the function is not called and the Formula's output remains also set to :const:`UNDEF`.
+  Any exception raised in *func* will abort the :ref:`runner <Circuit runner>`.
+
+  The function *func* must be a "pure function". This means its output (return value)
+  must be fully determined only by its input (arguments) and there should be no side
+  effects to the circuit.
+
 
 .. decorator:: formula
 
@@ -159,43 +198,11 @@ There are two ways to define a formula.
   The *comment* will be taken from the first docstring text line.
   The formula *name* will be the same as the function name. However,
   if the function name starts with an underscore, this leading underscore
-  is stripped from the formula's name. We *encourage* the use of leading
+  is stripped from the formula's name. We *encourage* the use of a leading
   underscore, because it prevents
-  :abbr`name shadowing (hiding a variable in outer scope with the same name)`
-  when the formula is referenced in a :class:`Trigger`::
+  :abbr:`name shadowing (hiding a variable in outer scope with the same name)`
+  when the formula is referenced in a :class:`Trigger`.
 
-    import redzed as rz
-
-    rz.Counter('cnt', ...)
-
-    @rz.formula
-    def _threshold10(cnt):
-        return cnt > 10
-
-    @rz.triggered
-    def print_msg(threshold10):  # <-- no name shadowing with "threshold10"
-        if threshold10:
-            print("Threshold exceeded")
-
-.. class:: Formula(name: str, *, func: Callable, comment: str = "")
-  :final:
-
-  Compute a value. Many circuits do not need this helper.
-
-  Formulas follow the same :ref:`naming rules <Setting the name>` as logic blocks.
-
-  All parameters of the function *func*
-  :ref:`refer to circuit blocks or formulas <Function parameters in Triggers and Formulas>`.
-  When any of them changes, the :class:`!Formula` block calls the function and the returned
-  value becomes Formula's output value.
-
-  During the circuit initialization, if any of the arguments is still :const:`UNDEF`,
-  the function is not called and the Formula's output remains also set to :const:`UNDEF`.
-  Any exception raised in *func* will abort the the :ref:`runner <Circuit runner>`.
-
-  The function *func* must be a "pure function". This means its output (return value)
-  must be fully determined only by its input (arguments) and there should be no side
-  effects to the circuit.
 
 
   Example (formula)
@@ -209,7 +216,7 @@ There are two ways to define a formula.
     rz.Memory("v1", comment="value #1", initial=False)
     rz.Memory("v2", comment="value #2", initial=False)
 
-    @rz.triggered
+    @rz.trigger
     def output(v1, v2):
         print(f"Output is {v1 and v2}")
 
@@ -224,7 +231,7 @@ There are two ways to define a formula.
     def _v1_v2(v1, v2):
         return v1 and v2
 
-    @rz.triggered
+    @rz.trigger
     def output(v1_v2):
         print(f"Output is {v1_v2}")
 
@@ -234,9 +241,9 @@ Function parameters in Triggers and Formulas
 
 Circuit elements :class:`Trigger` and :class:`Formula` are associated
 with an external function. As a general rule, all parameters of that
-function refer to blocks or formulas with the same name. This rule implies that
-the function must not use :abbr:`variadic arguments (\*args or \*\*kwargs)`
-nor positional-only arguments.
+function refer to :abbr:`sources (blocks or formulas)` with the same name.
+This rule implies that the function must not use :abbr:`variadic arguments
+(\*args or \*\*kwargs)` nor positional-only arguments.
 
 Example::
 
@@ -247,14 +254,16 @@ Example::
   def _and2(inputA, inputB):
       return inputA and inputB
 
-The referenced blocks (here ``inputA`` and ``inputB``) can be created before
+The source blocks (here ``inputA`` and ``inputB``) can be created before
 or after the definition of the Formula or the Trigger referencing them.
 
----
 
-If a block or formula needs to be referenced by a different name, use a default
-value for a parameter. The default can be either the block's name (string)
-or the block's object. The example below shows both cases.
+Other reference types
+---------------------
+
+If a block or formula cannot be simply referenced by a matching name, use a default
+value for a parameter. The default can be either block's name (string)
+or block's object. The example below shows both cases.
 
 .. caution::
   \(1) Avoid this feature if possible, because it makes function definitions
@@ -270,3 +279,39 @@ or the block's object. The example below shows both cases.
   @rz.formula
   def _and2(x='class', y=mem2):
       return x and y
+
+
+Access to the previous output
+-----------------------------
+
+A special mode is available in which the :meth:`Block.get` (or :meth:`Formula.get`
+which is identical) is called with the *with_previous* option set to :const:`True`.
+Tuples of output values ``(current, previous)`` are then passed to the external
+function instead of just the current value.
+
+This feature supports use cases where it is necessary to compare the output with the
+previous output value. The difference is often called delta (for numeric values)
+or a rising/falling edge (for logical values).
+
+Triggers and Formulas can enable this mode by including argument ``_with_previous=True``
+(note the leading underscore) in the function definition, preferably at the end of argument list.
+The opposite setting ``_with_previous=False`` disables it. This is also the default.
+
+When enabled, all function arguments are affected. Please note that the function
+will be called only when any of the *current* output values changes. The previous
+values are not monitored. They are just passed to the function for convenience.
+
+Example::
+
+  rz.Memory("state", validator=bool, initial=...)
+
+  @rz.trigger
+  def _state_trigger(state, _with_previous=True):
+      cur, prev = state
+      if prev is rz.UNDEF:
+          # initial value, nothing to compare with
+          return
+      if cur and not prev:
+          pass   # just turned on
+      if not cur and prev:
+          pass   # just turned off

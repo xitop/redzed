@@ -4,7 +4,6 @@ Test internal utilities.
 
 import redzed
 
-import pytest
 
 def test_func_call_string():
     """Test the _args_as_string helper."""

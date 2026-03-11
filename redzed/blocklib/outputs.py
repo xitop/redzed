@@ -25,8 +25,8 @@ class OutputFunc(redzed.Block):
 
     def __init__(
             self, *args,
-            func: Callable[..., t.Any],
-            stop_value: t.Any = redzed.UNDEF,
+            func: Callable[..., object],
+            stop_value: object = redzed.UNDEF,
             triggered_by: str|redzed.Block|redzed.Formula|None = None,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -43,7 +43,7 @@ class OutputFunc(redzed.Block):
             def trigger(value=triggered_by) -> None:
                 self.event('put', value)
 
-    def _event_put(self, edata: redzed.EventData) -> t.Any:
+    def _event_put(self, edata: redzed.EventData) -> object:
         evalue = edata['evalue']
         if redzed.get_debug_level() >= 1:
             self.log_debug("Running %s", func_call_string(self._func, (evalue,)))
@@ -73,7 +73,7 @@ class OutputWorker(redzed.Block):
     def __init__(
             self, *args,
             buffer: str|redzed.Block,
-            aw_func: Callable[[t.Any], Awaitable[t.Any]],   # e.g. an async function
+            aw_func: Callable[[object], Awaitable[object]],   # e.g. an async function
             workers: int = 1,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -142,7 +142,7 @@ class OutputController(redzed.Block):
     def __init__(
             self, *args,
             buffer: str|redzed.Block,
-            aw_func: Callable[[t.Any], Awaitable[t.Any]],     # e.g. an async function
+            aw_func: Callable[[object], Awaitable[object]],     # e.g. an async function
             rest_time: float|str = 0.0,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -163,7 +163,7 @@ class OutputController(redzed.Block):
         if self._rest_time > 0:
             await cancel_shield(asyncio.sleep(self._rest_time))
 
-    async def _run_with_rest_time(self, value: t.Any) -> None:
+    async def _run_with_rest_time(self, value: object) -> None:
         try:
             await self._aw_func(value)
         except asyncio.CancelledError:
@@ -245,7 +245,7 @@ class OutputController(redzed.Block):
 class _Buffer(_Validate, redzed.Block):
     def __init__(
             self, *args,
-            stop_value: t.Any = redzed.UNDEF,
+            stop_value: object = redzed.UNDEF,
             triggered_by: str|redzed.Block|redzed.Formula|None = None,
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -278,16 +278,16 @@ class _Buffer(_Validate, redzed.Block):
     def rz_stop(self) -> None:
         self._shutdown = True
 
-    def rz_put_value(self, value: t.Any) -> None:
+    def rz_put_value(self, value: object) -> None:
         raise NotImplementedError
 
     def rz_get_size(self) -> int:
         raise NotImplementedError
 
-    async def rz_buffer_get(self) -> t.Any:
+    async def rz_buffer_get(self) -> object:
         raise NotImplementedError
 
-    def rz_close(self) -> None:
+    def rz_post_stop(self) -> None:
         if (size := self.rz_get_size()) == 1:
             self.log_error("One value was not retrieved from buffer")
         elif size > 1:
@@ -315,11 +315,11 @@ class QueueBuffer(_Buffer):
             **kwargs) -> None:
         super().__init__(*args, **kwargs)
         queue_type = asyncio.PriorityQueue if priority_queue else asyncio.Queue
-        self._queue: asyncio.Queue[t.Any] = queue_type(maxsize)
+        self._queue: asyncio.Queue[object] = queue_type(maxsize)
         # Queue.shutdown is available in Python 3.13, but we want to support 3.11+
         self._waiters = 0
 
-    def rz_put_value(self, value: t.Any) -> None:
+    def rz_put_value(self, value: object) -> None:
         self._queue.put_nowait(value)
 
     def rz_get_size(self) -> int:
@@ -331,7 +331,7 @@ class QueueBuffer(_Buffer):
         for _ in range(self._waiters):
             self.rz_put_value(redzed.UNDEF)
 
-    async def rz_buffer_get(self) -> t.Any:
+    async def rz_buffer_get(self) -> object:
         """
         Remove and return the next value from the queue.
         Wait for a value if the queue is empty.
@@ -351,7 +351,9 @@ class QueueBuffer(_Buffer):
             raise BufferShutDown("The buffer was shut down")
         return value
 
-    def attach_output(self, output: type[redzed.Block] = OutputWorker, **kwargs) -> t.Self:
+    def attach_output(
+            self, *, output: type[redzed.Block] = OutputWorker, **kwargs
+            ) -> t.Self:
         return self._attach(output, **kwargs)
 
 
@@ -368,7 +370,7 @@ class MemoryBuffer(_Buffer):
         # - is empty:  False,   UNDEF,     cleared
         # - draining:  True,    != UNDEF,  set
         # - shut down: True,    UNDEF,     set (!)
-        self._value = redzed.UNDEF
+        self._value: object = redzed.UNDEF
         self._has_value = asyncio.Event()
 
     def rz_get_size(self) -> int:
@@ -376,7 +378,7 @@ class MemoryBuffer(_Buffer):
         has_data = self._value is not redzed.UNDEF
         return 1 if has_data else 0
 
-    def rz_put_value(self, value: t.Any) -> None:
+    def rz_put_value(self, value: object) -> None:
         if value is redzed.UNDEF:
             raise ValueError(f"{self}: Cannot put UNDEF into the buffer")
         self._value = value
@@ -389,7 +391,7 @@ class MemoryBuffer(_Buffer):
             assert self._value is redzed.UNDEF
             self._has_value.set()   # unblock reader(s)
 
-    async def rz_buffer_get(self) -> t.Any:
+    async def rz_buffer_get(self) -> object:
         """Remove and return an item from the memory cell."""
         while True:
             await self._has_value.wait()
@@ -404,5 +406,7 @@ class MemoryBuffer(_Buffer):
                 self._has_value.clear()
             return value
 
-    def attach_output(self, output: type[redzed.Block] = OutputController, **kwargs) -> t.Self:
+    def attach_output(
+            self, *, output: type[redzed.Block] = OutputController, **kwargs
+            ) -> t.Self:
         return self._attach(output, **kwargs)

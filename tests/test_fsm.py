@@ -215,15 +215,61 @@ def test_enter_exit_hooks(circuit):
     assert messages == ['-S3f', '+S1m']
 
 
-def test_no_hook_without_state():
-    """Test the state action hooks."""
+def test_bogus_hooks_kw(circuit):
+    """Test incorrect hook names (protection against typos)."""
     class B123(redzed.FSM):
-        STATES = ['S0']
+        STATES = ['S0', ('S1', None, 'S0')]
+        EVENTS = [('E0', ..., 'S0')]
 
+    B123('OK', enter_S0=lambda: None, exit_S1=lambda: None, cond_E0=lambda: True, t_S1=1)
     with pytest.raises(TypeError, match="invalid keyword argument"):
-        B123('wrong_hook1', enter_S99=lambda: None)
+        B123('wrong_hook1', enter_Sx=lambda: None)
     with pytest.raises(TypeError, match="invalid keyword argument"):
-        B123('wrong_hook2', exit_S7=lambda: None)
+        B123('wrong_hook2', exit_Sx=lambda: None)
+    with pytest.raises(TypeError, match="invalid keyword argument"):
+        B123('wrong_hook3', cond_Ex=lambda: True)
+
+    # hooks not available as kwargs
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        B123('wrong_hook4', select_Sx=lambda: 'S1')
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        B123('wrong_hook5', duration_S1=lambda: None)
+
+    # actually not a hook, but similar
+    with pytest.raises(TypeError, match="invalid keyword argument"):
+        B123('wrong_hook6', t_S0=1)
+
+
+def test_bogus_hooks_meth(circuit):
+    """Test incorrect hook names (protection against typos)."""
+    class B123(redzed.FSM):
+        STATES = ['S0', ('S1', None, 'S0')]
+        EVENTS = [('E0', ..., 'S0')]
+
+    # pylint: disable=multiple-statements
+    class OK1(B123):
+        def enter_S0(self): pass
+        def exit_S1(self): pass
+        def cond_E0(self): pass
+        def duration_S1(self): return 1
+    OK1('ok_fsm1')
+
+    with pytest.raises(ValueError, match="Method name 'enter_Sx' is not valid"):
+        class Wrong1(B123):
+            def enter_Sx(self): pass
+    with pytest.raises(ValueError, match="Method name 'exit_Sx' is not valid"):
+        class Wrong2(B123):
+            def exit_Sx(self): pass
+    with pytest.raises(ValueError, match="Method name 'cond_Ex' is not valid"):
+        class Wrong3(B123):
+            def cond_Ex(self): return True
+
+    with pytest.raises(ValueError, match="'S0' must not appear in the STATES table"):
+        class Wrong4(B123):
+            def select_S0(self): return 'S1'
+    with pytest.raises(ValueError, match="Method name 'duration_S0' is not valid"):
+        class Wrong5(B123):
+            def duration_S0(self): return 1
 
 
 def test_cond(circuit):
@@ -329,7 +375,7 @@ def test_persistent_state(circuit):
 
     mem = EventMemory('mem')
     fsm = Dummy(
-        'test', initial=redzed.RestoreState(checkpoints='event'),
+        'test', initial=redzed.PersistentState(save_flags=redzed.SF_EVENT),
         enter_D=[forbidden, lambda: mem.event('D', '+enter')],
         exit_D=lambda: mem.event('D', '-exit')
         )

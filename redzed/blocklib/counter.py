@@ -20,6 +20,8 @@ class Counter(redzed.Block):
     Counter. If modulo is set to a number M, count modulo M.
     """
 
+    RZ_STATE_IS_OUTPUT = True
+
     def __init__(self, *args, modulo: int|None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         if modulo == 0:

@@ -7,7 +7,7 @@ Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
-__all__ = ['Formula', 'formula', 'Trigger', 'triggered']
+__all__ = ['Formula', 'formula', 'Trigger', 'trigger', 'triggered']
 
 from collections.abc import Callable
 import inspect
@@ -29,13 +29,14 @@ class _ExtFunction:
     Manage calls to a function associated with a Trigger or a Formula.
     """
 
-    def __init__(self, func: Callable[..., t.Any], owner: Formula|Trigger) -> None:
+    def __init__(self, func: Callable[..., object], owner: Formula|Trigger) -> None:
         """Check if the function's signature is compatible."""
         self._owner = owner
         self._func = func
         self._parameters: list[str] = []
         self._inputs: list[str|block.Block|Formula] = []
             # names (strings) must be resolved to objects before start
+        self._with_prev = False
         arglist = []
         Param = inspect.Parameter
         try:
@@ -45,8 +46,15 @@ class _ExtFunction:
                 if param.kind not in [Param.POSITIONAL_OR_KEYWORD, Param.KEYWORD_ONLY]:
                     raise ValueError(
                         "Function takes *args or **kwargs or positional-only arguments")
+                default = param.default
+                if name == '_with_previous':
+                    if default is Param.empty:
+                        raise ValueError(
+                            "Argument required: _with_previous=True (or False)")
+                    self._with_prev = bool(default)
+                    continue
                 self._parameters.append(name)
-                if (default := param.default) is Param.empty:
+                if default is Param.empty:
                     self._inputs.append(name)
                     arglist.append(name)
                 else:
@@ -75,21 +83,22 @@ class _ExtFunction:
         self._inputs = [resolve_name(ref) for ref in self._inputs]
         return t.cast(list[block.Block|Formula], self._inputs)
 
-    def run_function(self) -> t.Any:
+    def run_function(self) -> object:
         """Run with output values of referenced blocks."""
-        # union-attr: after pre-init the _inputs does not contain strings
-        kwargs = dict(zip(
-            self._parameters,
-            (blk.get() for blk in self._inputs),    # type: ignore[union-attr]
-            strict=True))
-        if UNDEF in kwargs.values():
+        values: t.Iterable[object] = [
+            # @mypy: union-attr: after pre-init '_inputs' does not contain strings
+            blk.get(with_previous=self._with_prev)  # type: ignore[union-attr]
+            for blk in self._inputs]
+        current = [v[0] for v in values] if self._with_prev else values # type: ignore[index]
+        if UNDEF in current:
             assert self._owner.circuit.get_state() < circuit.CircuitState.RUNNING
             if get_debug_level() >= 2:
-                undef_params = (param for param, value in kwargs.items() if value is UNDEF)
+                undefs = (
+                    param for param, value in zip(self._parameters, current) if value is UNDEF)
                 _logger.debug(
-                    "%s: NOT calling the function; UNDEF: '%s'",
-                    self._owner, ', '.join(undef_params))
+                    "%s: NOT calling the function; UNDEF: %s", self._owner, ', '.join(undefs))
             return UNDEF
+        kwargs = dict(zip(self._parameters, values, strict=True))
         if get_debug_level() >= 1:
             _logger.debug(
                 "%s: Calling %s", self._owner, func_call_string(self._func, (), kwargs))
@@ -107,9 +116,9 @@ class Trigger:
     """
     A circuit item monitoring output changes of selected blocks.
     """
-    def __init__(self, func: Callable[..., t.Any]) -> None:
+    def __init__(self, func: Callable[..., object]) -> None:
         self._ext_func = _ExtFunction(func, owner=self)
-        self._str = f"<{self.type_name} for {self._ext_func.signature}>"
+        self._str = f"<{self.type_name} func={func.__name__}>"
         self.circuit = circuit.get_circuit()
         self.circuit.rz_add_item(self)
         self._enabled = False
@@ -138,10 +147,10 @@ class Trigger:
         self._enabled = False
 
 
-_FUNC = t.TypeVar("_FUNC", bound=Callable[..., t.Any])
-def triggered(func: _FUNC) -> _FUNC:
+_FUNC = t.TypeVar("_FUNC", bound=Callable[..., object])
+def trigger(func: _FUNC) -> _FUNC:
     """
-    @triggered adds a trigger to a function.
+    @trigger adds a trigger to a function.
 
     The function *func* itself it not changed.
 
@@ -152,6 +161,9 @@ def triggered(func: _FUNC) -> _FUNC:
     """
     Trigger(func)
     return func
+
+
+triggered = trigger     # transitory
 
 
 @t.final
@@ -165,8 +177,15 @@ class Formula(base_block.BlockOrFormula):
     The most convenient way to create a Formula block is the
     @formula decorator.
     """
-    def __init__(self, *args, func: Callable[..., t.Any], **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+            self, name=None, *, func: Callable[..., object], comment=None, **kwargs
+            ) -> None:
+        if name is None:
+            name = func.__name__.removeprefix('_')
+        if comment is None:
+            comment = '' if func.__doc__ is None \
+                else inspect.cleandoc(func.__doc__).partition('\n')[0]
+        super().__init__(name, comment=comment, **kwargs)
         self._ext_func = _ExtFunction(func, self)
         self._evaluate_active = False
 
@@ -197,6 +216,5 @@ class Formula(base_block.BlockOrFormula):
 
 def formula(func: _FUNC) -> _FUNC:
     """@formula() creates a Formula block with the decorated function."""
-    comment = '' if func.__doc__ is None else inspect.cleandoc(func.__doc__).partition('\n')[0]
-    Formula(func.__name__.removeprefix('_'), func=func, comment=comment)
+    Formula(func=func)
     return func

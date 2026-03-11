@@ -142,3 +142,15 @@ def test_event_handlers(circuit):
     assert addsub.get() == 10 - 2*3
     addsub.event('div', 4)
     assert addsub.get() == 4 / 4
+
+
+def test_event_init(circuit):
+    """Monitoring events do not initialize. Other events do."""
+    timer = redzed.Timer('timer')
+
+    for _ in [1, 2]:
+        with pytest.raises(RuntimeError, match="Not initialized"):
+            timer.event('_get_state')
+
+    timer.event('toggle')
+    assert timer.event('_get_state') == ('on', None, {})

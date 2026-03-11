@@ -89,23 +89,30 @@ For a description visit :ref:`setting the name <Setting the name>`.
 
   Check if the output differs from :const:`UNDEF`, i.e. if the block has been initialized.
 
-.. method:: Block.get() -> Any
+.. method:: Block.get(*, with_previous: bool = False) -> object
 
-  Get the current output value. Return :const:`UNDEF` if the block hasn't been
-  initialized yet.
+  - when *with_previous* is :const:`False` (default):
+      Get the current output value. Return :const:`UNDEF` if the block
+      hasn't been initialized yet.
+  - when *with_previous* is :const:`True`:
+      Return a tuple ``(current_output, previous_output)``. The previous
+      output is :const:`UNDEF` if the block did not have two values
+      (current and previous) yet.
 
-.. method:: Block.get_previous() -> Any
+.. function:: redzed.get_output(name: str, with_previous: bool = False) -> object
 
-  Get the previous output value. Return :const:`UNDEF` if the block did not have
-  two values (current and previous) yet.
+  Get the output value(s) of a block (or formula) given by its *name*.
 
-.. method:: Block._set_output(output: Any) -> bool
+  Roughly equivalent to ``redzed.get_circuit().resolve_name(name).get(...)``.
+
+.. method:: Block._set_output(output: object) -> bool
 
   Set the output value. It is not allowed to output :const:`UNDEF`.
 
-  Return :const:`True` if the output has changed or the *always_trigger* option was set.
-  In this case, the old output value becomes previous value (see :meth:`Block.get_previous`),
-  dependent formulas are recalculated and (subsequently) affected triggers activated.
+  Return :const:`True` if the output has changed or if the *always_trigger*
+  option was set. In these cases, the output value is saved as previous value,
+  the new *value* becomes the current output, dependent formulas
+  are recalculated and subsequently all affected triggers are activated.
 
   Return :const:`False` if the output value is the same
   as before and no circuit activity was initiated.
@@ -151,7 +158,7 @@ for its functionality.
   resolving block names with :meth:`Circuit.resolve_name`. Using names allows to reference blocks
   that are defined later in the code. Do not set the internal state or the output here.
 
-.. method:: Block.rz_init(init_value: Any, /) -> None
+.. method:: Block.rz_init(init_value: object, /) -> None
 
   Optional. Initialize the block's state and output based on the *init_value*.
 
@@ -200,7 +207,7 @@ for its functionality.
 
 Block's :ref:`state persistence <Persistent state>` support requires two methods:
 
-.. method:: Block.rz_export_state() -> Any
+.. method:: Block.rz_export_state() -> object
 
   Optional. Return the entire internal state.
   The result of the call is undefined when the block hasn't been
@@ -214,7 +221,7 @@ Block's :ref:`state persistence <Persistent state>` support requires two methods
   the ":ref:`_get_state`" monitoring event, because the event handler makes
   necessary checks before calling the :meth:`!rz_export_state`.
 
-.. method:: Block.rz_restore_state(state: Any, /) -> None
+.. method:: Block.rz_restore_state(state: object, /) -> None
 
   Optional. Initialize by restoring the entire internal *state* and the
   corresponding output. The *state* was returned by :meth:`rz_export_state`
@@ -229,39 +236,58 @@ Block's :ref:`state persistence <Persistent state>` support requires two methods
     Class attribute. It is :const:`True` if the persistent state
     is supported by this block type.
 
-  .. attribute:: Block.rz_persistence
-    :type: enum.Flag
-
-    State persistence settings for a particular block. It is non-zero
-    if and only if the state persistence is switched on, i.e.:
-
-    - the circuit has a persistent storage,
-    - persistent state is supported by the block type, see :attr:`RZ_PERSISTENCE`
-    - the feature was enabled by using :class:`RestoreState` among initializers.
-
-    The value is a combination of following
-    `flags [↗] <https://docs.python.org/3/library/enum.html#enum.Flag>`_ OR-ed together:
-
-    .. attribute:: redzed.PersistenceFlags.ENABLED
-      :noindex:
-
-      Persistent state is enabled. If not set, all other bits are zero too.
-
-    .. attribute:: redzed.PersistenceFlags.EVENT
-      :noindex:
-
-      Option: checkpoints after each event are enabled.
-
-    .. attribute:: redzed.PersistenceFlags.INTERVAL
-      :noindex:
-
-      Option: periodic checkpointing is enabled.
-
   .. attribute:: Block.rz_key
     :type: str
 
     The persistent storage key associated with this block. It contains the
     block's name. A renamed block won't find its state saved by the old name.
+
+  .. attribute:: Block.rz_save_flags
+    :type: redzed.SaveFlags
+
+    State persistence settings for a particular block.
+    The value is a combination of :class:`SaveFlags` OR-ed together.
+    :attr:`!rz_save_flags` is :abbr:`truthy (boolean value is True)`
+    if and only if the state persistence is switched on, i.e.:
+
+    - the circuit has a persistent storage,
+    - persistent state is supported by the block type, see :attr:`RZ_PERSISTENCE`
+    - the feature was enabled by using :class:`PersistentState` among initializers.
+
+
+.. class:: SaveFlags
+
+  Enumeration of `flags [↗] <https://docs.python.org/3/library/enum.html#enum.Flag>`_
+  related to state persistence settings stored in :attr:`Block.rz_save_flags`.
+
+  .. attribute:: redzed.SaveFlags.ENABLED
+    :noindex:
+
+    Persistent state is enabled. If not set, all other flags are cleared too.
+    This flag is used only internally.
+
+  .. attribute:: redzed.SaveFlags.EVENT
+    :noindex:
+
+  .. attribute:: redzed.SaveFlags.INTERVAL
+    :noindex:
+
+  .. attribute:: redzed.SaveFlags.OUTPUT
+    :noindex:
+
+    Options controlling state checkpointing. For brevity they are aliased
+    to shorter names listed below which are preferred.
+
+.. data:: SF_NONE
+
+      Null :class:`SaveFlags` value. All flags are cleared.
+
+.. data:: SF_EVENT
+.. data:: SF_INTERVAL
+.. data:: SF_OUTPUT
+
+    Aliases to respective :class:`SaveFlags` members.
+    Their semantics is documented in :class:`PersistentState`.
 
 
 6. Shutdown and cleanup
@@ -305,7 +331,7 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
   keyword argument. If :meth:`!rz_astop` does not terminate before
   the *stop_timeout* elapses, it will be cancelled.
 
-.. method:: Block.rz_close() -> None
+.. method:: Block.rz_post_stop() -> None
 
   Optional. This method is called when all blocks are stopped.
   This is the final cleanup function for blocks that must stay
@@ -337,26 +363,31 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
 
 7A. Entry point:
 
-.. method:: Block.event(etype: str, /, evalue: Any = redzed.UNDEF, **edata: Any) -> Any
+.. method:: Block.event(etype: str, /, evalue: object = redzed.UNDEF, **edata: object) -> object
 
-    .. important::
-      Do not overload this method. Implement all functionality inside event handlers.
+  .. important::
+    Do not overload this method. Implement all functionality inside event handlers.
 
-    Handle the incoming event of type *etype* with optionally attached *edata*
-    by dispatching it to the appropriate handler. Return the handler's exit value.
-    :exc:`UnknownEvent` is raised if there is no handler for the *etype*.
-    :exc:`CircuitShutDown` is raised if a non-monitoring event arrives after
-    block's shutdown - see :meth:`Block.rz_is_shut_down`.
+  Handle the incoming event of type *etype* with optionally attached *edata*
+  by dispatching it to the appropriate handler. Return the handler's exit value.
+  :exc:`UnknownEvent` is raised if there is no handler for the *etype*.
+  :exc:`CircuitShutDown` is raised if a non-monitoring event arrives after
+  block's shutdown - see :meth:`Block.rz_is_shut_down`.
 
-    The *evalue* is part of the *edata*. If it is given, it is inserted
-    into *edata* as ``edata['evalue']``. It is accepted either as a positional or
-    as a keyword argument just for convenience.
+  The *evalue* is part of the *edata*. If it is given, it is inserted
+  into *edata* as ``edata['evalue']``. It is accepted either as a positional or
+  as a keyword argument just for convenience.
 
-    All event data items whose value is :const:`UNDEF` are removed before calling
-    the handler.
+  All event data items whose value is :const:`UNDEF` are removed before calling
+  the handler.
 
-    While a block is handling an event, it will raise an exception when it receives
-    an event of exactly the same type. This precaution stops otherwise infinite loops.
+  While a block is handling an event, it will raise an exception when it receives
+  an event of exactly the same type. This precaution stops otherwise infinite loops.
+
+.. function:: send_event(name: str, etype: str, /, evalue: object = redzed.UNDEF, **edata: object) -> object
+
+  Send an event to a block given by its *name* and return the result.
+  After resolving the name, remaining arguments are passed to :meth:`Block.event`.
 
 .. exception:: UnknownEvent
 
@@ -373,7 +404,7 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
 
 7B. Event handlers:
 
-.. method:: Block._event_ETYPE(edata: redzed.EventData) -> Any
+.. method:: Block._event_ETYPE(edata: redzed.EventData) -> object
 
   Optional. Specialized event handler for type ``ETYPE``.
 
@@ -381,7 +412,7 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
   If a method with matching event type name is defined, it will be called to handle
   that event type. E.g. :meth:`!_event_store` will be called for all ``'store'`` events.
 
-.. method:: Block._default_event_handler(etype: str, edata: redzed.EventData) -> Any
+.. method:: Block._default_event_handler(etype: str, edata: redzed.EventData) -> object
 
   The handler that is called for event types without a specialized event handler.
 
@@ -425,7 +456,7 @@ will be processed or transmitted. If not sure, prefer JSON serializable data str
 
 **Parameters:**
 
-  **x_anyname** (Any) - reserved names for keyword arguments, also in upper case
+  **x_anyname** (object) - reserved names for keyword arguments, also in upper case
     All keyword arguments starting with ``'x_'`` or ``'X_'`` are accepted
     and stored as block's attributes. These names are reserved for storing
     arbitrary application data.
@@ -433,7 +464,7 @@ will be processed or transmitted. If not sure, prefer JSON serializable data str
 **Attributes:**
 
   .. attribute:: Block.x_anyname
-    :type: Any
+    :type: object
 
   .. attribute:: Block.X_ANYNAME
-    :type: Any
+    :type: object

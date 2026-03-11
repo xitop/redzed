@@ -16,9 +16,9 @@ async def test_persistence(circuit):
     async def tester():
         mem.event('store', "X")
 
-    inp = redzed.Memory("m0", initial=[redzed.RestoreState(), "no"])
-    num = redzed.Memory("m1", initial=[redzed.RestoreState(), 0], validator=int)
-    mem = redzed.Memory("m2", initial=[redzed.RestoreState(), 9])
+    inp = redzed.Memory("m0", initial=[redzed.PersistentState(), "no"])
+    num = redzed.Memory("m1", initial=[redzed.PersistentState(), 0], validator=int)
+    mem = redzed.Memory("m2", initial=[redzed.PersistentState(), 9])
     assert inp.rz_key == "Memory:m0"
     storage = add_ts({inp.rz_key: "yes"})
     circuit.set_persistent_storage(storage)
@@ -35,7 +35,7 @@ async def test_validator_persistence(circuit):
         return n + 100
 
     inp = redzed.Memory(
-        "inp", initial=[redzed.RestoreState(), redzed.InitValue(7)], validator=add100)
+        "inp", initial=[redzed.PersistentState(), redzed.InitValue(7)], validator=add100)
     storage = {}
     circuit.set_persistent_storage(storage)
     await runtest(sleep=0)
@@ -46,6 +46,6 @@ async def test_validator_persistence(circuit):
     circuit.set_persistent_storage(storage)
 
     inp = redzed.Memory(
-        "inp", initial=[redzed.RestoreState(), redzed.InitValue(3)], validator=add100)
+        "inp", initial=[redzed.PersistentState(), redzed.InitValue(3)], validator=add100)
     await runtest(sleep=0)
     assert strip_ts(storage) == {inp.rz_key: 107}

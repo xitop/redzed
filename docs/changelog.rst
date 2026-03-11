@@ -7,6 +7,45 @@ Changelog
 Version numbers are based on the release date (Y.M.D).
 
 
+26.3.13 (beta)
+==============
+
+Breaking changes:
+
+- :class:`PersistentState` (was :class:`!RestoreState`):
+  *checkpoints* option was replaced by *save_flags*
+  which allows a finer control and has a reasonable default
+- :meth:`!Block.get_previous` was removed. Its functionality was integrated
+  into :meth:`Block.get`.
+- monitoring events ``"_get_names"`` and ``"_get_output"`` were combined
+  into ":ref:`_get_info`"
+- :meth:`Circuit.set_persistent_storage`: option *sync_time* was renamed to *save_interval*
+
+Renaming - the old names will be kept as an alias for a short transitory period:
+
+- :deco:`!@triggered` was renamed to :deco:`trigger`
+- :class:`!RestoreState` was renamed to :class:`PersistentState`
+
+New features, improvements:
+
+- An implementation of persistent storage was added:
+  :class:`redzed.utils.PersistentDict`
+- :meth:`Circuit.set_persistent_storage` can register a *close_callback*
+- :class:`FSM`: :ref:`dynamically selected states <Dynamically selected states>`
+  were implemented
+- :class:`FSM`: incorrect :ref:`hook method names <hooks>` are now rejected;
+  previously they were ignored
+- Functions :func:`redzed.send_event` and :func:`redzed.get_output`
+  were added
+- :ref:`Data validators <Input data validation>` can reject values
+  also by returning :const:`UNDEF`
+- Triggers and Formulas now offer simple
+  :ref:`access to the previous output <Access to the previous output>` value
+- :class:`FSM`: output of ``'_get_config'`` event is now JSON serializable
+- :class:`Formula` now auto-detects the name the same way as :deco:`formula`
+- :meth:`Circuit.get_persistent_storage` was added
+
+
 26.2.18 (beta)
 ==============
 
@@ -16,7 +55,7 @@ Breaking changes:
   Note the inverse meaning.
 - :ref:`Logic block <Block API>` output modifiers were a bad design
   choice and were removed. Approximate replacements of options *output_counter*
-  and *output_previous* are *always_trigger* and :meth:`Block.get_previous`
+  and *output_previous* are *always_trigger* and :meth:`Block.get_prev`
   respectively.
 - :class:`Counter`: event ``'put'`` was renamed to ``'set'``
 
@@ -40,41 +79,7 @@ New features, improvements:
 - :class:`Repeat`: settings may be modified dynamically
 
 
-26.1.28 (alpha)
-===============
+Older releases:
 
-Breaking changes:
-
-- :deco:`formula`: the decorator now does not take parameters
-- :class:`FSM`: timed and non-timed states were combined into single table
-- :class:`DataPoll`: support for a validator was removed.
-  Validation is a responsibility of the acquisition function.
-- :class:`Memory`, :class:`MemoryExp`:
-  store events now report validation errors differently
-- :class:`OutputWorker`, :class:`OutputController`, :class:`InitTask`:
-  argument *coro_func* was renamed to more accurate *aw_func*;
-  an awaitable (aw) is a broader term than a coroutine (coro)
-
-Bug fixes:
-
-- :class:`QueueBuffer`: the buffer was sometimes shut down before
-  the *stop_value* was retrieved
-- :class:`Memory` (but not :class:`MemoryExp`): during initialization from
-  saved persistent data, previously preprocessed data were erroneously preprocessed again
-- :ref:`cron server <Cron service API>`: a race condition during
-  schedule updates was fixed
-- some async function/coroutine/awaitable type checks were removed due to false positives
-
-New features, improvements:
-
-- :ref:`Initializers`: the rule for distinguishing multiple initializers
-  from ordinary sequences was relaxed
-- :class:`QueueBuffer`, :class:`MemoryBuffer`: buffers support data validation
-- :ref:`logging setup <Handlers>` was improved
-- :ref:`output counter <2. Output>` now does not wrap around
-
-
-25.12.30 (alpha)
-================
-
-Initial release.
+- 26.1.28 alpha stage
+- 25.12.30 Initial release

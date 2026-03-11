@@ -48,7 +48,7 @@ Running a circuit
 
   In case of a failure, :func:`!run` raises an :exc:`!ExceptionGroup` containing a flat list
   of all errors caught in the circuit runner, in its service tasks and
-  and in the supporting tasks. Please remember that their tracebacks correspond
+  and in supporting tasks. Their tracebacks correspond
   to the place where the exceptions were caught and reported from.
 
   .. important::
@@ -72,22 +72,22 @@ See also :meth:`Circuit.get_state` and the corresponding synchronization tool :m
 1. Start supporting coroutines as individual tasks in a :abbr:`task group (asyncio.TaskGroup)`.
 2. Initialize and start all components. Asynchronous block initialization routines
    (if any) are invoked concurrently.
-3. Keep the circuit running until shutdown, abort or an error.
-   If an error occurs in previous steps, this state won't be reached
+3. Keep the circuit running until :meth:`Circuit.shutdown`, :meth:`Circuit.abort`
+   or an error. If an error occurs in previous steps, this state won't be reached
    and the runner goes directly to the shutdown state below.
 4. Shut the circuit down, in detail:
 
    - disallow events
    - save states to persistent storage
    - deactivate all trigger blocks
-   - call stop/cleanup routines
+   - call stop/cleanup routines;
+     asynchronous cleanup routines (if any) are invoked concurrently
    - cancel and await service tasks
 
-   Asynchronous cleanup routines (if any) are invoked concurrently.
-   Any failures are logged, but the cleanup shall not be interrupted.
-   The cleanup could take time up to the largest of all *stop_timeout*
-   values (plus some small overhead).
-5. Exit the runner, cancel and await the supporting tasks. If any errors were detected
+   Failures are logged, but they don't interrupt the shutdown procedure.
+   The whole shutdown could take time up to the largest of all
+   :ref:`stop_timeout <6. Shutdown and cleanup>` values (plus some small overhead).
+5. Exit the runner, cancel and await supporting tasks. If any errors were detected
    or were reported with :meth:`Circuit.abort`, raise them all in a :exc:`!ExceptionGroup`.
 
 

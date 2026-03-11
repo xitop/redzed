@@ -79,8 +79,8 @@ A block can have zero, one or more initializers.
       initial=InitValue([1, 2])   # explicit equivalent
 
       # multiple initializers (at least one item is an initializer):
-      initial=[RestoreState(), 2]             # shortcut applies to integer 2
-      initial=[RestoreState(), InitValue(2)]  # explicit equivalent
+      initial=[PersistentState(), 2]             # shortcut applies to integer 2
+      initial=[PersistentState(), InitValue(2)]  # explicit equivalent
 
 .. warning::
   Initializers are not reusable::
@@ -103,7 +103,7 @@ A block can have zero, one or more initializers.
 Sync initializers
 -----------------
 
-.. class:: InitValue(value: Any)
+.. class:: InitValue(value: object)
 
   Initialize with a fixed value.
 
@@ -112,44 +112,71 @@ Sync initializers
   ``initial=redzed.InitValue(value)``.
 
   :class:`!InitValue` offers a fail-safe initialization, so it is usually used
-  alone or as the last initializer following :class:`RestoreState` or async initializers.
+  alone or as the last initializer following :class:`PersistentState` or async initializers.
 
-.. class:: InitFunction(func: Callable[..., Any], *args: Any)
+.. class:: InitFunction(func: Callable[..., object], *args: object)
 
-  Run *func* with arguments *args* and initialize with the return value.
+  Run *func* with arguments *args* and initialize with the return value
+  unless it is :const:`UNDEF`. When the returned value is :const:`UNDEF`,
+  the initialization continues with the next initializer.
 
-.. class:: RestoreState(expiration=None, checkpoints=None)
+.. class:: PersistentState(expiration=None, save_flags=None)
 
   Restore the internal state that was saved to persistent storage during
-  previous program run. The presence of :class:`!RestoreState` among block's
+  previous program run.
+
+  .. important::
+
+    This initializer is special. Other initializers produce
+    a single initialization value and the block builds a new internal state
+    from that value. :class:`!PersistentState` directly restores the entire
+    :ref:`internal state <Internal state and output>`.
+
+  The :class:`!PersistentState` initializer is applicable only
+  to blocks that support :ref:`persistent state <Persistent state>`.
+  The presence of :class:`!PersistentState` among block's
   initializers automatically enables saving of the internal state.
 
-  The :class:`!RestoreState` initializer is applicable only
-  to blocks that support :ref:`persistent state <Persistent state>`.
-
-  :param None | float | str expiration:
-    An *expiration* time may be specified in order to disregard stale data.
-    The argument can be given as a number of seconds or as
-    a :ref:`string with units <Time durations with units>`.
+  :param float|str|None expiration:
+    An *expiration* time may be specified in order to disregard stale data
+    when restoring the state. The argument can be given as a number of seconds
+    or as a :ref:`string with time units <Time durations with units>`.
     The expiration time is measured since the last data save.
 
-  :param None | Literal['event'] | Literal['interval'] checkpoints:
-    This option enables :ref:`checkpointing <Checkpointing>`
-    which is by default disabled.
+  :param SaveFlags|None save_flags:
+    This parameter controls when exactly is block's internal state saved
+    to persistent storage for :ref:`checkpointing <Checkpointing>` purposes.
+    The default and recommended setting :const:`None` configures checkpointing
+    automatically.
 
-    - When set to ``'event'``, the state is saved after each processed
-      event (except monitoring events which do not alter the internal state).
-    - When set to ``'interval'``, the state is periodically saved
-      by a background service configured by :meth:`Circuit.set_persistent_storage`.
+    Valid flags are listed below. Multiple flags may be given OR-ed together (bit-wise).
+    Frequent checkpointing creates additional overhead and choosing the optimal
+    settings is a trade-off. In this regard, the combination ``SF_EVENT | SF_OUTPUT``
+    is often unfavorable. Consider using one or the other.
 
-    Frequent checkpointing creates additional overhead. Choosing
-    the optimal settings is a trade-off.
+    - :attr:`SF_NONE`
+        No checkpointing.
+    - :attr:`SF_EVENT`
+        Save state after each processed event except
+        :ref:`monitoring events <Monitoring events>` which do not
+        alter the internal state.
+    - :attr:`SF_OUTPUT`
+        Save state after each output change.
+    - :attr:`SF_INTERVAL`
+        Save state periodically by a background service
+        configured with :meth:`Circuit.set_persistent_storage`.
 
-  This initializer differs from other initializers. Other initializers produce
-  a single initialization value and the block builds a new internal state
-  from that value. :class:`!RestoreState` directly restores the entire
-  :ref:`internal state <Internal state and output>`
-  and the state may contain more information than an initialization value alone.
+    **Default options:**
+
+    Without explicitly given *options*, following settings
+    will be applied by default:
+
+    - blocks :class:`Memory`, :class:`Counter`, :class:`DataPoll`:
+        :attr:`SF_OUTPUT` will be set
+    - other blocks:
+        :attr:`SF_EVENT` will be set
+    - If *expiration* is set:
+        :attr:`SF_INTERVAL` will be added to keep timestamps updated
 
 
 Async initializers
@@ -160,10 +187,12 @@ be utilized by circuit inputs only. This kind of initialization has a higher cha
 unsuccessful. For reliability combine it with sync initializers like :class:`InitValue`;
 there is an example at the bottom of this page.
 
-.. class:: InitTask(aw_func: Callable[..., Awaitable], *args: Any, timeout: float|str = 10.0)
+.. class:: InitTask(aw_func: Callable[..., Awaitable], *args: object, timeout: float|str = 10.0)
 
   Await an async function with arguments *args* in an async task with *timeout*.
-  Initialize with the return value.
+  Initialize with the return value unless it is :const:`UNDEF`. When the returned
+  value is :const:`UNDEF`, the initialization continues with the next initializer.
+
   In exact terms is *aw_func* a callable returning an awaitable.
 
   Argument *timeout* is a number of seconds or a
@@ -210,4 +239,4 @@ Examples (initializers)
       # 1. wait up to 3 seconds for data
       # 2. if not initialized, use the saved value if it is recent (2 hours max.)
       # 3. if still not initialized, use a default of 50 %
-      initial=[rz.InitWait(3), rz.RestoreState("2h"), 50)
+      initial=[rz.InitWait(3), rz.PersistentState("2h"), 50)

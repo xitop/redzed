@@ -98,7 +98,7 @@ async def tfsec(circuit, dynamic):
 
 
 async def test_persistent(circuit):
-    td = redzed.TimeSpan("pers", initial=redzed.RestoreState())
+    td = redzed.TimeSpan("pers", initial=redzed.PersistentState())
     storage = {}
     circuit.set_persistent_storage(storage)
     conf = []
@@ -118,7 +118,7 @@ async def test_persistent(circuit):
     del td
 
     redzed.reset_circuit()
-    td = redzed.TimeSpan("pers", initial=redzed.RestoreState())
+    td = redzed.TimeSpan("pers", initial=redzed.PersistentState())
     circuit = redzed.get_circuit()
     circuit.set_persistent_storage(storage)
 

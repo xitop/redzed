@@ -44,7 +44,8 @@ class BlockOrFormula:
         self.circuit.rz_add_item(self)
         self._dependent_formulas: set[formula_trigger.Formula] = set()
         self._dependent_triggers: set[formula_trigger.Trigger] = set()
-        self._output = self._output_prev = UNDEF
+        self._output: object  = UNDEF
+        self._output_prev: object = UNDEF
 
     @property
     def type_name(self) -> str:
@@ -65,7 +66,7 @@ class BlockOrFormula:
         """Add a trigger block depending on our output value."""
         self._dependent_triggers.add(trigger)
 
-    def _set_output(self, output: t.Any) -> bool:
+    def _set_output(self, output: object) -> bool:
         """Set output."""
         if output is UNDEF:
             raise ValueError(f"{self}: Cannot set output to <UNDEF>.")
@@ -76,42 +77,43 @@ class BlockOrFormula:
             self.log_debug("Output: %r -> %r", self._output_prev, output)
         return True
 
-    def get(self) -> t.Any:
-        return self._output
-
-    def get_previous(self) -> t.Any:
-        return self._output_prev
+    @t.overload
+    def get(self, *, with_previous: t.Literal[True]) -> tuple[object, object]: ...
+    @t.overload
+    def get(self, *, with_previous: bool = False) -> object: ...
+    def get(self, *, with_previous: bool = False) -> object:
+        return (self._output, self._output_prev) if with_previous else self._output
 
     def is_initialized(self) -> bool:
         return self._output is not UNDEF
 
-    def log_msg(self, msg: str, *args: t.Any, level: int, **kwargs: t.Any) -> None:
+    def log_msg(self, msg: str, *args: object, level: int, **kwargs: t.Any) -> None:
         """Add own name and log the message with given severity level."""
         _logger.log(level, f"{self} {msg}", *args, **kwargs)
 
-    def log_debug(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_debug(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message with DEBUG severity."""
         self.log_msg(msg, *args, level=logging.DEBUG, **kwargs)
 
-    def log_debug1(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_debug1(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message if debugging is enabled."""
         if get_debug_level() >= 1:
             self.log_msg(msg, *args, level=logging.DEBUG, **kwargs)
 
-    def log_debug2(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_debug2(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message if verbose debugging is enabled."""
         if get_debug_level() >= 2:
             self.log_msg(msg, *args, level=logging.DEBUG, **kwargs)
 
-    def log_info(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_info(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message with _INFO_ severity."""
         self.log_msg(msg, *args, level=logging.INFO, **kwargs)
 
-    def log_warning(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_warning(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message with _WARNING_ severity."""
         self.log_msg(msg, *args, level=logging.WARNING, **kwargs)
 
-    def log_error(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_error(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message with _ERROR_ severity."""
         self.log_msg(msg, *args, level=logging.ERROR, **kwargs)
 

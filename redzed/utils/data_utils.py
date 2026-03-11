@@ -16,7 +16,7 @@ import typing as t
 _logger = logging.getLogger(__package__)
 
 
-def check_identifier(name: t.Any, msg_prefix: str) -> None:
+def check_identifier(name: str, msg_prefix: str) -> None:
     """Raise if *name* is not a valid identifier."""
     if not isinstance(name, str):
         raise TypeError(f"{msg_prefix} must be a string, got {name!r}")
@@ -26,7 +26,7 @@ def check_identifier(name: t.Any, msg_prefix: str) -> None:
         raise ValueError(f"{msg_prefix} must be a valid identifier, got '{name}'")
 
 
-def is_multiple(arg: t.Any) -> bool:
+def is_multiple(arg: object) -> t.TypeGuard[Sequence]:
     """
     Check if *arg* specifies multiple ordered items.
 
@@ -49,7 +49,7 @@ def to_tuple(args: _T_item|Sequence[_T_item]) -> tuple[_T_item, ...]:
     return t.cast(tuple[_T_item], (args,))
 
 
-def func_name(func: Callable[..., t.Any]) -> str:
+def func_name(func: Callable[..., object]) -> str:
     """Return the name of a callable."""
     if not callable(func):
         raise TypeError(f"{func!r} is not callable")
@@ -63,9 +63,9 @@ def func_name(func: Callable[..., t.Any]) -> str:
 
 
 def func_call_string(
-        func: Callable[..., t.Any]|None,
-        args: Sequence[t.Any],
-        kwargs: Mapping[str, t.Any]|None = None
+        func: Callable[..., object]|None,
+        args: Sequence[object],
+        kwargs: Mapping[str, object]|None = None
         ) -> str:
     """Convert args and kwargs to a printable string."""
     agen = (repr(a) for a in args)

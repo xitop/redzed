@@ -30,28 +30,28 @@ class TerminatingSignal:
         self._signo = signo
         if signo is None:
             return
-        self._saved_handler: Callable[[int, FrameType|None], None]|int|None
+        self._saved_sighandler: Callable[[int, FrameType|None], None]|int|None
         self._signame = signal.strsignal(signo) or f"#{signo}"
 
     def __enter__(self) -> None:
         if self._signo is None:
             return
-        self._saved_handler = signal.getsignal(self._signo)
-        if self._saved_handler is None:
+        self._saved_sighandler = signal.getsignal(self._signo)
+        if self._saved_sighandler is None:
             _logger.warning(
                 "An incompatible handler for signal %s was found; "
                 + "Redzed will not catch this signal.",
                 self._signame
                 )
         else:
-            signal.signal(self._signo, self._handler)
+            signal.signal(self._signo, self._sighandler)
 
     def __exit__(self, _exc_type, _exc_val, _exc_tb) -> t.Literal[False]:
-        if self._signo is not None and self._saved_handler is not None:
-            signal.signal(self._signo, self._saved_handler)
+        if self._signo is not None and self._saved_sighandler is not None:
+            signal.signal(self._signo, self._saved_sighandler)
         return False
 
-    def _handler(self, signo: int, frame: FrameType|None) -> None:
+    def _sighandler(self, signo: int, frame: FrameType|None) -> None:
         """A signal handler."""
         # - we need the _threadsafe variant of call_soon
         # - get_running loop() and get_circuit() will succeed,
@@ -60,5 +60,5 @@ class TerminatingSignal:
         call_soon = asyncio.get_running_loop().call_soon_threadsafe
         call_soon(_logger.warning, "%s", msg)
         call_soon(circuit.get_circuit().shutdown)
-        if callable(self._saved_handler):
-            self._saved_handler(signo, frame)
+        if callable(self._saved_sighandler):
+            self._saved_sighandler(signo, frame)

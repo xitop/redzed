@@ -8,22 +8,24 @@ Project home: https://github.com/xitop/redzed/
 from __future__ import annotations
 
 __all__ = [
-    'CircuitState', 'stop_function', 'get_circuit', 'reset_circuit', 'run', 'unique_name']
+    'CircuitState', 'get_circuit', 'get_output', 'reset_circuit',
+    'run', 'unique_name', 'send_event', 'stop_function']
 
 import asyncio
-from collections.abc import Callable, Coroutine, Iterable, MutableMapping, Sequence
+from collections.abc import Callable, Coroutine, Iterable, Mapping, MutableMapping, Sequence
 import contextlib
 import enum
 import itertools
 import logging
 import signal
 import time
+import types
 import typing as t
 
-from .block import Block, PersistenceFlags
+from .block import Block
 from .cron_service import Cron
 from .debug import get_debug_level, set_debug_level
-from .initializers import AsyncInitializer
+from .initializers import AsyncInitializer, SaveFlags
 from .formula_trigger import Formula, Trigger
 from .signal_shutdown import TerminatingSignal
 from .undef import UNDEF
@@ -64,7 +66,25 @@ def unique_name(prefix: str = 'auto') -> str:
     return get_circuit().rz_unique_name(prefix)
 
 
-_StopFunction: t.TypeAlias = Callable[[], t.Any]
+def _name_to_block(name: str) -> Block | Formula:
+    try:
+        # pylint: disable-next=protected-access
+        return _current_circuit._blocks[name]                   # type: ignore[union-attr]
+    except (KeyError, AttributeError):
+        raise KeyError(f"No block or formula named '{name}' found") from None
+
+
+def send_event(name: str, etype: str, /, evalue: object = UNDEF, **edata) -> object:
+    """Send event to a block given by name."""
+    return _name_to_block(name).event(etype, evalue, **edata)   # type: ignore[union-attr]
+
+
+def get_output(name: str, with_previous: bool = False) -> object:
+    """Get output of a block or formula given by name."""
+    return _name_to_block(name).get(with_previous=with_previous)
+
+
+_StopFunction: t.TypeAlias = Callable[[], object]
 
 def stop_function(func: _StopFunction) -> _StopFunction:
     get_circuit().rz_add_stop_function(func)
@@ -91,7 +111,7 @@ class _TerminateTaskGroup(Exception):
 
 
 @contextlib.contextmanager
-def error_debug(exc_source: t.Any, suppress_error: bool = False) -> t.Iterator[None]:
+def error_debug(exc_source: object, suppress_error: bool = False) -> t.Iterator[None]:
     """Add a note to raised exception -or- log and suppress exception."""
     try:
         yield None
@@ -118,35 +138,35 @@ class Circuit:
         self._triggers: list[Trigger] = []      # all triggers belonging to this circuit
         self._stops: list[_StopFunction] = []
         self._errors: list[Exception] = []      # exceptions occurred in the runner
-        self.rz_persistent_dict: MutableMapping[str, t.Any]|None = None
-            # persistent state data back-end
-        self.rz_persistent_ts: float|None = None
-            # timestamp of persistent data (Unix clock)
+        self._persistent_dict: MutableMapping[str, object]|None = None
+            # persistent state data back-end (storage)
+        self._persistent_close: Callable[[], object]|None = None
+            # close function for _persistent_dict
         self._start_ts: float|None = None
             # runner's start timestamp (monotonic clock)
-        self._auto_cancel_tasks: set[asyncio.Task[t.Any]] = set()
+        self._auto_cancel_tasks: set[asyncio.Task[object]] = set()
             # interval for checkpointing
-        self._sync_time = 251.0
+        self._save_interval = 251.0
 
-    def log_debug1(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_debug1(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message if debugging is enabled."""
         if get_debug_level() >= 1:
             _logger.debug("[Circuit] "+ msg, *args, **kwargs)
 
-    def log_debug2(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_debug2(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message if verbose debugging is enabled."""
         if get_debug_level() >= 2:
             _logger.debug("[Circuit] "+ msg, *args, **kwargs)
 
-    def log_info(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_info(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message with _INFO_ priority."""
         _logger.info("[Circuit] "+ msg, *args, **kwargs)
 
-    def log_warning(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_warning(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message with _WARNING_ priority."""
         _logger.warning("[Circuit] "+ msg, *args, **kwargs)
 
-    def log_error(self, msg: str, *args: t.Any, **kwargs: t.Any) -> None:
+    def log_error(self, msg: str, *args: object, **kwargs: t.Any) -> None:
         """Log a message with _ERROR_ priority."""
         _logger.error("[Circuit] "+ msg, *args, **kwargs)
 
@@ -305,7 +325,7 @@ class Circuit:
 
     async def _checkpointing_service(self, blocks: Sequence[Block]) -> None:
         while self._state <= CircuitState.RUNNING:
-            await asyncio.sleep(self._sync_time)
+            await asyncio.sleep(self._save_interval)
             now = time.time()
             if self._state is CircuitState.RUNNING:
                 for blk in blocks:
@@ -313,25 +333,32 @@ class Circuit:
 
     def set_persistent_storage(
             self,
-            persistent_dict: MutableMapping[str, t.Any]|None,
+            persistent_dict: MutableMapping[str, object]|None,
             *,
-            sync_time: float|str|None = None
+            save_interval: float|str|None = None,
+            close_callback: Callable[[], object]|None = None
             ) -> None:
         """Setup the persistent state data storage."""
         self._check_not_started()
-        self.rz_persistent_dict = persistent_dict
-        if sync_time is not None:
-            self._sync_time = time_period(sync_time)
+        self._persistent_dict = persistent_dict
+        self._persistent_close = close_callback
+        if save_interval is not None:
+            self._save_interval = time_period(save_interval)
+
+    def get_persistent_storage(self) -> Mapping[str, object]|None:
+        """Get a read-only proxy of persistent state data storage."""
+        storage = self._persistent_dict
+        return None if storage is None else types.MappingProxyType(storage)
 
     def _check_persistent_storage(self) -> None:
         """Check persistent state related settings."""
-        storage = self.rz_persistent_dict
-        ps_blocks = [blk for blk in self.get_items(Block) if blk.rz_persistence]
+        storage = self._persistent_dict
+        ps_blocks = [blk for blk in self.get_items(Block) if blk.rz_save_flags]
         if storage is None:
             if ps_blocks:
                 self.log_warning("No data storage, disabling state persistence")
             for blk in ps_blocks:
-                blk.rz_persistence = PersistenceFlags(0)
+                blk.rz_save_flags = SaveFlags(0)
             return
         # clear the unused items
         used_keys = {pblk.rz_key for pblk in ps_blocks}
@@ -342,7 +369,7 @@ class Circuit:
         # start checkpointing if necessary
         ch_blocks = [
             blk for blk in self.get_items(Block)
-            if blk.rz_persistence & PersistenceFlags.INTERVAL]
+            if blk.rz_save_flags & SaveFlags.INTERVAL]
         if ch_blocks:
             self.create_service(
                 self._checkpointing_service(ch_blocks), name="Checkpointing service")
@@ -424,16 +451,17 @@ class Circuit:
         It is assumed the block has the persistent state feature
         enabled and the storage is ready.
         """
-        assert self.rz_persistent_dict is not None
+        assert self._persistent_dict is not None
         if not blk.is_initialized():
             blk.log_debug2("Not saving undefined state")
+            return
         if now is None:
             now = time.time()
         try:
             if (state := blk.rz_export_state()) is UNDEF:
                 blk.error("Exported state was <UNDEF>")
                 return
-            self.rz_persistent_dict[blk.rz_key] = [state, now]
+            self._persistent_dict[blk.rz_key] = [state, now]
         except Exception as err:
             blk.log_error("Saving state failed with %r", err)
 
@@ -488,11 +516,12 @@ class Circuit:
                 # union-attr: checked with .has_method()
                 start.rz_start()   # type: ignore[union-attr]
 
-        if self.rz_persistent_dict is not None:
+        if self._persistent_dict is not None:
             # initial checkpoints
-            ch_blocks = [
-                blk for blk in self.get_items(Block)
-                if blk.rz_persistence & (PersistenceFlags.EVENT | PersistenceFlags.INTERVAL)]
+            mask = SaveFlags.EVENT | SaveFlags.INTERVAL
+            # SaveFlags.OUTPUT is omitted from the mask, because output must have changed
+            # (from UNDEF) during initialization and that change triggered a data save
+            ch_blocks = [blk for blk in self.get_items(Block) if blk.rz_save_flags & mask]
             if ch_blocks:
                 now = time.time()
                 for blk in ch_blocks:
@@ -500,9 +529,9 @@ class Circuit:
 
     async def _runner_shutdown(self) -> None:
         """Run the circuit during the shutdown."""
-        if self.rz_persistent_dict is not None:
+        if self._persistent_dict is not None:
             # save the state first, because stop may invalidate the state information
-            ps_blocks = [blk for blk in self.get_items(Block) if blk.rz_persistence]
+            ps_blocks = [blk for blk in self.get_items(Block) if blk.rz_save_flags]
             if ps_blocks:
                 self._log_debug2_blocks("Saving persistent state", ps_blocks)
                 now = time.time()
@@ -530,7 +559,7 @@ class Circuit:
                     bstop.rz_stop()
 
         if self._auto_cancel_tasks:
-            self.log_debug2("Cancelling %d service task(s)")
+            self.log_debug2("Cancelling %d service task(s)", len(self._auto_cancel_tasks))
             for task in self._auto_cancel_tasks:
                 if not task.done():
                     task.cancel()
@@ -548,12 +577,18 @@ class Circuit:
                 for blk in stop_blocks:
                     tg.create_task(self._shutdown_block_async(blk))
 
-        close_blocks = [blk for blk in self.get_items(Block) if blk.has_method('rz_close')]
+        close_blocks = [blk for blk in self.get_items(Block) if blk.has_method('rz_post_stop')]
         if close_blocks:
             self._log_debug2_blocks("Closing", close_blocks)
             for close in close_blocks:
                 with error_debug(close, suppress_error=True):
-                    close.rz_close()
+                    close.rz_post_stop()
+
+        if self._persistent_dict is not None and self._persistent_close is not None:
+            try:
+                self._persistent_close()
+            except Exception as err:
+                self.log_error("Persistent storage close function failed: %r", err)
 
     async def _runner_core(self) -> t.NoReturn:
         """
@@ -648,7 +683,7 @@ class Circuit:
 
     async def watchdog(
             self,
-            coro: Coroutine[t.Any, t.Any, t.Any],
+            coro: Coroutine[object, object, object],
             immediate_start: bool,
             name: str|None
             ) -> None:
@@ -663,7 +698,7 @@ class Circuit:
             name = this_task.get_name()
         elif this_task.get_name() != name:
             this_task.set_name(name)
-        longname = f"Task '{name}' running '{coro.__name__}'"
+        longname = f"Task '{name}'; coro '{coro.__name__}'"
         if not immediate_start:
             self.log_debug2("%s waiting for RUNNING state", longname)
             if not await self.reached_state(CircuitState.RUNNING):
@@ -694,7 +729,7 @@ class Circuit:
         raise exc
 
     def create_service(
-            self, coro: Coroutine[t.Any, t.Any, t.Any],
+            self, coro: Coroutine[object, object, object],
             immediate_start: bool = False,
             auto_cancel: bool = True,
             **task_kwargs
@@ -748,7 +783,9 @@ def leaf_exceptions(group: BaseExceptionGroup[_ET]) -> list[_ET]:
     return result
 
 
-async def run(*coroutines: Coroutine[t.Any, t.Any, t.Any], catch_sigterm: bool = True) -> None:
+async def run(
+        *coroutines: Coroutine[object, object, object], catch_sigterm: bool = True
+        ) -> None:
     """
     The main entry point(). Run the circuit together with supporting coroutines.
 
