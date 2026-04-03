@@ -46,6 +46,17 @@ send :ref:`monitoring events <Monitoring events>` to all blocks
 and, of course, send any events to output blocks.
 
 
+Output data validation
+======================
+
+Output blocks can validate data using a :ref:`validator <Data validation>`.
+This includes a *stop_value* if it is defined.
+
+Unlike the input data, the output data originate inside the circuit,
+so their validation provides only an additional layer of protection.
+The main use-case here is the preprocessing.
+
+
 Sync outputs
 ============
 
@@ -127,20 +138,6 @@ Use a :class:`MemoryBuffer` with an :class:`OutputController`.
   output blocks are attached to buffers in a nonsensical way.
 
 
-Output data validation
-----------------------
-
-Async output buffers can validate data using a validator.
-It is a function specified with the *validator* argument.
-It takes one argument, the data to be output. This includes a *stop_value* if it is defined.
-The validator either accepts the data by returning it or rejects it by raising
-an exception. The returned data may be modified (preprocessed).
-
-Unlike the input data validation, the output data originate inside the circuit,
-so their validation provides only an additional layer of protection.
-The main use-case here is the preprocessing.
-
-
 Worker mode
 -----------
 
@@ -182,8 +179,7 @@ Worker mode
       Usage: ``queue_buffer.event('put', value)``.
 
       Insert the *value* into the queue. Raise the :exc:`!asyncio.QueueFull` error
-      if the buffer capacity set by *maxsize* was reached. Raise :exc:`!RuntimeError`
-      if the circuit is no longer running.
+      if the buffer capacity set by *maxsize* was reached.
 
     **'_get_size'**
       Usage: ``size = queue_buffer.event('_get_size')``.
@@ -197,8 +193,10 @@ Worker mode
     please note:
 
     - All arguments (including *name*) are keyword-only.
-    - By default, the name will be derived from the buffer's name by appending
-      a short ``"_io"`` suffix. Use ``name=...`` to set the name explicitly.
+    - By default, the output block's name is derived from the buffer's name.
+      When the name ends with ``"buffer"`` or ``"buff"`` (case insensitive),
+      that part is removed. Then a short ``"io"`` or ``"_io"`` suffix is appended.
+      Use ``name=...`` to set the name explicitly.
     - By default, the comment will be copied from the buffer.
       Use ``comment=...`` to override.
     - The *buffer* argument will be set automatically. Do not include *buffer*
@@ -216,7 +214,7 @@ Worker mode
 
   :param aw_func:
     An asynchronous function taking one argument, the value from the buffer.
-    More precisely, *aw_func* must be a callable returning an awaitable.
+    To be exact, *aw_func* is a callable returning an awaitable.
     It will be used in a statement::
 
       await aw_func(value)
@@ -240,7 +238,8 @@ Worker mode
 
   During a shutdown are all workers active until the buffer is drained
   or until the *stop_timeout* is reached, whatever happens first.
-  Workers that do not stop before the timeout are then cancelled.
+  Workers that do not stop before the timeout are then cancelled
+  and abandoned.
 
   The output of an :class:`!OutputWorker` block is always :const:`None`.
 
@@ -272,7 +271,6 @@ Controller mode
       Usage: ``memory_buffer.event('put', value)``.
 
       Store the *value* in the buffer. Any previously stored value will be overwritten.
-      Raise :exc:`!RuntimeError` if the circuit is no longer running.
 
     **'_get_size'**
       Usage: ``size = memory_buffer.event('_get_size')``.
@@ -323,5 +321,7 @@ Controller mode
   Make allowance for processing of the last buffered value plus
   one additional value if the optional *stop_value* is defined
   and don't forget to add *rest_time* intervals after each value.
+  If the task running *aw_func* does not stop before the *stop_timeout*,
+  it will be cancelled and abandoned.
 
   The output of an :class:`!OutputController` block is always :const:`None`.

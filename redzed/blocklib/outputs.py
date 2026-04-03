@@ -15,7 +15,7 @@ import typing as t
 
 import redzed
 from redzed.utils import BufferShutDown, cancel_shield, func_call_string, time_period
-from .validator import _Validate
+from ..validator import _Validate
 
 
 class OutputFunc(redzed.Block):
@@ -58,8 +58,9 @@ class OutputFunc(redzed.Block):
         self.log_debug2("output function returned: %r", result)
         return result
 
-    def rz_is_shut_down(self) -> bool:
-        return self._shutdown
+    def is_ready(self) -> bool:
+        state = self.circuit.get_state()
+        return state >= redzed.CircuitState.INIT_BLOCKS and not self._shutdown
 
     def rz_stop(self) -> None:
         self._shutdown = True
@@ -232,12 +233,6 @@ class OutputController(redzed.Block):
             task.cancel()
             await asyncio.sleep(0)
             if not task.done():
-                try:
-                    async with asyncio.timeout(self._rest_time):
-                        await task
-                except TimeoutError:
-                    pass
-            if not task.done():
                 self.log_warning("The main task did not stop")
             raise
 
@@ -272,8 +267,9 @@ class _Buffer(_Validate, redzed.Block):
     def _event__get_size(self, _edata: redzed.EventData) -> int:
         return self.rz_get_size()
 
-    def rz_is_shut_down(self) -> bool:
-        return self._shutdown
+    def is_ready(self) -> bool:
+        state = self.circuit.get_state()
+        return state >= redzed.CircuitState.INIT_BLOCKS and not self._shutdown
 
     def rz_stop(self) -> None:
         self._shutdown = True
@@ -297,7 +293,13 @@ class _Buffer(_Validate, redzed.Block):
             self, output: type[redzed.Block], *, name: str|None = None, **output_kwargs: t.Any
             ) -> t.Self:
         if name is None:
-            name = self.name + '_io'
+            bname = self.name
+            for suffix in ["buffer", "buff"]:
+                slen = len(suffix)
+                if bname[-slen:].lower() == suffix:
+                    bname = bname[:-slen]
+                    break
+            name = bname + ('io' if not bname or bname.endswith('_') else '_io')
         output_kwargs.setdefault('comment', self.comment)
         output(name, buffer=self, **output_kwargs)
         return self
@@ -340,7 +342,7 @@ class QueueBuffer(_Buffer):
         and then raise BufferShutDown to each caller.
         """
         if self._shutdown and self._queue.qsize() == 0:
-            raise BufferShutDown("The buffer was shut down")
+            raise BufferShutDown("The buffer has been shut down")
         self._waiters += 1
         try:
             value = await self._queue.get()
@@ -348,7 +350,7 @@ class QueueBuffer(_Buffer):
             self._waiters -= 1
         if value is redzed.UNDEF:
             # unblocked in rz_stop
-            raise BufferShutDown("The buffer was shut down")
+            raise BufferShutDown("The buffer has been shut down")
         return value
 
     def attach_output(
@@ -380,7 +382,7 @@ class MemoryBuffer(_Buffer):
 
     def rz_put_value(self, value: object) -> None:
         if value is redzed.UNDEF:
-            raise ValueError(f"{self}: Cannot put UNDEF into the buffer")
+            raise ValueError(f"{self}: Cannot put <UNDEF> into the buffer")
         self._value = value
         self._has_value.set()
 
@@ -397,9 +399,9 @@ class MemoryBuffer(_Buffer):
             await self._has_value.wait()
             if self._value is redzed.UNDEF:
                 if self._shutdown:
-                    raise BufferShutDown("The buffer was shut down")
+                    raise BufferShutDown("The buffer has been shut down")
                 if not self._has_value.is_set():
-                    raise RuntimeError("BUG!: busy loop prevented")
+                    raise RuntimeError("BUG!: busy loop detected")
                 continue
             value, self._value = self._value, redzed.UNDEF
             if not self._shutdown:

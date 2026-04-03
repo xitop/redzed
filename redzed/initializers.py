@@ -19,7 +19,7 @@ import enum
 import time
 
 from . import block
-from .undef import UNDEF, UndefType
+from .defs import UNDEF, UndefType
 from .utils import time_period
 
 
@@ -33,11 +33,6 @@ class SyncInitializer:
     A block can have multiple initializers. They will be called
     in given order until the first one succeeds.
     """
-
-    def __init__(self) -> None:
-        # Keep track in order to prevent repeated application of the same initializer.
-        # It could happen when a block receives an event during initialization.
-        self._applied = False
 
     @property
     def type_name(self) -> str:
@@ -55,9 +50,6 @@ class SyncInitializer:
         is when a block doesn't get proper initialization after using
         ALL initializers.
         """
-        if self._applied:
-            return
-        self._applied = True
         try:
             init_value = self._get_init()
         except Exception as err:
@@ -167,9 +159,6 @@ class PersistentState(SyncInitializer):
         return state
 
     def apply_to(self, blk: block.Block) -> None:
-        if self._applied:
-            return
-        self._applied = True
         if not blk.rz_save_flags:
             return
         try:
@@ -199,7 +188,6 @@ class AsyncInitializer:
     """
 
     def __init__(self, timeout: float|str):
-        self._applied = False
         self._timeout = time_period(timeout, passthrough=None)
 
     @property
@@ -212,9 +200,6 @@ class AsyncInitializer:
 
     async def async_apply_to(self, blk: block.Block) -> None:
         """Async version of apply(). Do not overwrite existing state."""
-        if self._applied:
-            return
-        self._applied = True
         if self._timeout >= _LONG_TIMEOUT:
             blk.log_debug2("%s has a long timeout of %.1f secs", self.type_name, self._timeout)
         try:
@@ -229,6 +214,7 @@ class AsyncInitializer:
         if init_value is UNDEF:
             return
         if blk.is_initialized():
+            # normally not reached - snyc initialization cancels the async task
             blk.log_debug1(
                 "%s: not applying the init value, because the block "
                 + "has been initialized in the meantime", self.type_name)

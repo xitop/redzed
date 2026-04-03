@@ -1,5 +1,5 @@
 """
-Test the Memory block.
+Test the Memory/MemoryExp block.
 """
 
 import pytest
@@ -101,9 +101,46 @@ def test_validator(circuit, exc, suppress):
     if suppress:
         assert mem.event('store', 68, suppress=True) is False
     else:
-        with pytest.raises(ValueError):
+        with pytest.raises(redzed.ValidationError):
             mem.event('store', 68)
-        with pytest.raises(ValueError):
+        with pytest.raises(redzed.ValidationError):
             mem.event('store', 69, suppress=False)
 
     assert mem.get() == 25
+
+
+@pytest.mark.parametrize(
+    'exctype', [redzed.ValidationError, TypeError, ValueError, ArithmeticError])
+# pylint: disable-next=unused-argument
+def test_broken_validator(circuit, exctype):
+    """Test a validator with a problem"""
+    def validator(value):
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            raise exctype("value not OK")
+        raise IndexError("bug!")
+
+    inp = redzed.Memory('input', validator=validator, initial=0)
+    mini_init(circuit)
+
+    assert inp.event('store', 10)
+    assert inp.get() == 10
+    assert not inp.event('store', "text", suppress=True)
+    with pytest.raises(redzed.ValidationError):
+        inp.event('store', "text")
+    assert inp.get() == 10
+    with pytest.raises(Exception):
+        inp.event('store', (1,2,3), suppress=True)  # not suppressed
+    assert inp.get() == 10
+
+
+# pylint: disable-next=unused-argument
+def test_expired_validation(circuit):
+    """Test validation of 'expired'"""
+    def positive(x):
+        return redzed.UNDEF if x < 0 else x
+
+    redzed.MemoryExp('exp1', duration=1, expired=+1, validator=positive)
+    with pytest.raises(redzed.ValidationError, match="validator rejected"):
+        redzed.MemoryExp('exp2', duration=1, expired=-1, validator=positive)

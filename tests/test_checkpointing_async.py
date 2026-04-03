@@ -122,6 +122,7 @@ async def test_fsm(circuit):
             ['S1', "10ms", 'S2'],
             'S2',
         ]
+        EVENTS = []
 
     fsm = FSM_012(
         'fsm012',
@@ -136,7 +137,7 @@ async def test_fsm(circuit):
 
     slog = []
     def log_state(*_args, **_kwargs):
-        slog.append(fsm.state)
+        slog.append(fsm.fsm_state())
         return DEFAULT
 
     storage = add_ts({fsm.rz_key: ('S2', None, {})})

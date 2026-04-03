@@ -30,11 +30,12 @@ _TT_ERROR = 2.5         # timing difference threshold for a reset
 _SET24H = frozenset(dt.time(hour, 0, 0) for hour in range(24))
 
 
+_OFFSET = 2.5*SEC_PER_HOUR
 def _wait_time(t1: dt.time, t2: dt.time) -> float:
     """
     Return seconds from *t1* to *t2* on a 24 hour clock.
 
-    The result is always between -1 and 23 hours (in seconds).
+    The result is always between -2.5 and 21.5 hours (in seconds).
     Positive values are normal wait times (when *t2* is after *t1*).
     Negative values correspond to delays after a missed event
     (when *t2* is less than 1 hour before *t1*).
@@ -44,9 +45,7 @@ def _wait_time(t1: dt.time, t2: dt.time) -> float:
         + SEC_PER_MIN*(t2.minute - t1.minute)
         + (t2.second - t1.second)
         + (t2.microsecond - t1.microsecond) / 1_000_000.0)
-    if -SEC_PER_HOUR < diff <= 23 * SEC_PER_HOUR:
-        return diff
-    return diff + SEC_PER_DAY if diff < 0 else diff - SEC_PER_DAY
+    return (diff + _OFFSET) % SEC_PER_DAY - _OFFSET
 
 
 class Cron(Block):
@@ -63,11 +62,12 @@ class Cron(Block):
         super().__init__(*args, **kwargs)
         self._utc = bool(utc)
         self._alarms: dict[dt.time, set[Block]] = {tod: set() for tod in _SET24H}
-        self._timetable: list[dt.time] = sorted(_SET24H)
-            # timetable = sorted list (for bisection) of wake-up times (i.e. _alarms keys)
-        self._tt_len = 24
         self._reversed: dict[Block, set[dt.time]] = {}
+        self._timetable: list[dt.time] = sorted(_SET24H)
+            # sorted list (for bisection) of wake-up times (i.e. _alarms keys)
+        self._tt_len = 24       # timetable length
         self._do_reload = asyncio.Event()
+        self._tz: str|None = None
 
     def rz_start(self) -> None:
         tz = 'UTC' if self._utc else 'local time'
@@ -79,7 +79,13 @@ class Cron(Block):
             # but we need to keep all date/time object timezone naive
             # in order to make them mutually comparable
             return dt.datetime.now(dt.UTC).replace(tzinfo=None)
-        return dt.datetime.now()
+        now = dt.datetime.now()
+        tz = now.astimezone().tzinfo.tzname(None)   # type: ignore[union-attr]
+        if self._tz != tz:
+            if self._tz is not None:
+                self.log_info("DST or time zone change detected: %s -> %s", self._tz, tz)
+            self._tz = tz
+        return now
 
     def _check_tz(self, time_of_day: dt.time) -> None:
         """Check if the time zone is left unspecified (i.e. object is "naive")."""
@@ -139,12 +145,12 @@ class Cron(Block):
             if wakeup is None or self._do_reload.is_set():
                 index = bisect.bisect_left(self._timetable, nowt)
                 next_wakeup = self._timetable[index % self._tt_len]
-                # next_wakeup is new and wakeup was not processed yet,
-                # all we need is to select which one comes first.
+                # when we have both 'next_wakeup' (new) and 'wakeup' (not processed yet),
+                # we need to select which one comes first:
                 if wakeup is None \
                         or next_wakeup != wakeup and _wait_time(next_wakeup, wakeup) > 0:
                     wakeup = next_wakeup
-                # else: the current wakeup is confirmed
+                # else: the current 'wakeup' is confirmed
                 self._do_reload.clear()
                 self.log_debug1("wake-up time after reload: %s", wakeup)
             else:
@@ -177,25 +183,25 @@ class Cron(Block):
                     if diff > _TT_WARNING:
                         self.log_warning(
                             "expected time: %s, current time: %s, diff: %.1f sec %s",
-                            wakeup, nowt, diff, 'after' if after else 'BEFORE')
+                            wakeup, nowt, diff, 'late' if after else 'EARLY')
                     elif debug2:
                         self.log_debug(
                             "iteration %d, diff %.2f ms %s",
-                            step, 1000*diff, 'after' if after else 'BEFORE')
+                            step, 1000*diff, 'late' if after else 'EARLY')
                     # prev_sleeptime and long_sleep has been set in previous step
                     # pylint: disable=used-before-assignment
-                    if diff > _TT_ERROR or sleeptime > prev_sleeptime or step == 4:
+                    if diff > _TT_ERROR or sleeptime >= prev_sleeptime or step == 5:
                         # something is wrong with the computer clock
                         reset_flag = True
                         break
                     if long_sleep:
-                        saved = overhead
                         measured_overheads.append(overhead - sleeptime)
                         # Using smallest overhead recently measured, because to be late
                         # by a tiny amount is much better than to wake up early by a tiny
                         # amount. The latter case must be corrected by another sleep.
+                        prev_overhead = overhead
                         overhead = min(measured_overheads)
-                        if debug2 and overhead != saved:
+                        if debug2 and overhead != prev_overhead:
                             self.log_debug("estimated overhead >= %.2f ms", 1000*overhead)
                     if after:
                         break
@@ -219,13 +225,9 @@ class Cron(Block):
 
             if reset_flag:
                 # DST begin/end or other computer clock related reason
-                if (not self._utc and nowdt.isoweekday() >= 6
-                        and abs(diff - SEC_PER_HOUR) <= _TT_ERROR):
-                    self.log_warning("Apparently a DST (summer time) clock change has occured.")
                 self.log_warning(
-                    "Resetting due to a time tracking problem. "
-                    + "Notifying all registered blocks.")
-                # .rz_cron_event() may alter the dict we are iterating over
+                    "Resetting due to a time tracking issue. Notifying all registered blocks.")
+                # .rz_cron_event() might alter the dict we are iterating over
                 for blk in list(self._reversed):    # all blocks
                     assert hasattr(blk, 'rz_cron_event')
                     blk.rz_cron_event(nowdt)
@@ -235,16 +237,18 @@ class Cron(Block):
             if self._do_reload.is_set():
                 continue
 
-            if wakeup not in self._alarms:
+            try:
+                # .rz_cron_event() might alter the set we are going to iterate over
+                block_list = list(self._alarms[wakeup])
+            except KeyError:
                 continue    # entry removed in the meantime
-            # .rz_cron_event() may alter the set we are iterating over
-            block_list = list(self._alarms[wakeup])
             if get_debug_level() >= 1:
                 self.log_debug(
                     "Notifying block(s): %s", ", ".join(blk.name for blk in block_list))
             for blk in block_list:
                 assert hasattr(blk, 'rz_cron_event')
                 blk.rz_cron_event(nowdt)
+        # --- end while-True loop ---
 
     def _event__get_config(self, _edata: EventData) -> dict[str, dict[str, list[str]]]:
         """Return the internal scheduling data for debugging or monitoring."""

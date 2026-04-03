@@ -2,20 +2,18 @@
 Test the OutputFunc block.
 """
 
+# pylint: disable=unused-argument
+
 import asyncio
 
 import pytest
 
 import redzed
 
-from .utils import runtest, TimeLogger
+from .utils import Exc, Grp, runtest, TimeLogger
 
 pytestmark = pytest.mark.usefixtures("task_factories")
 
-Exc = pytest.RaisesExc
-Grp = pytest.RaisesGroup
-
-# pylint: disable=unused-argument
 
 
 async def output_func(circuit, *, log, v2=2, **kwargs):
@@ -54,10 +52,32 @@ async def test_basic(circuit):
     await output_func(circuit, log=LOG)
 
 
+async def test_trigger_by(circuit):
+    """Test triggered_by=..."""
+    log1 = []
+    log2 = []
+    log3 = []
+    cnt = redzed.Counter('counter', modulo=4)
+    redzed.OutputFunc('out1', func=log1.append)
+    redzed.OutputFunc('out2', func=log2.append, triggered_by='counter')
+    redzed.OutputFunc('out3', func=log3.append, triggered_by=cnt)
+
+    @redzed.trigger
+    def cnt2out(counter):
+        redzed.send_event('out1', 'put', counter)
+
+    async def tester():
+        for _ in range(10):
+            cnt.event('inc')
+
+    await runtest(tester())
+    assert log1 == log2 == log3 == [0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2]
+
+
 async def test_on_error_abort(circuit):
     with Grp(Exc(
             ZeroDivisionError,
-            match="Error occurred in <OutputFunc output>")):
+            match="<OutputFunc output>: Error occurred during handling of event 'put'")):
         await output_func(circuit, v2=0, log=[])
 
 
@@ -98,5 +118,5 @@ async def test_stop_value(circuit, stop_function):
     await runtest(tester())
 
     assert saved_arg == 99
-    with pytest.raises(redzed.CircuitShutDown, match="was shut down"):
+    with Exc(redzed.CircuitShutDown, match="has been shut down"):
         out.event('put', 0)

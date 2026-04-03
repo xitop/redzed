@@ -11,7 +11,7 @@ import pytest
 import redzed
 from redzed.utils import cancel_shield
 
-from .utils import runtest
+from .utils import ms, runtest
 
 pytestmark = pytest.mark.usefixtures("task_factories")
 
@@ -23,20 +23,20 @@ async def test_shield():
     async def shielded():
         nonlocal result
         for _ in range(5):
-            await asyncio.sleep(0.015)
+            await ms(15)
             result += 1
 
     async def coro(shield):
         nonlocal result
         result = 0
         await (cancel_shield(shielded()) if shield else shielded())
-        await asyncio.sleep(0.01)
+        await ms(10)
         result = 99
 
     # without shield
     for t in range(2, 7):
         task = asyncio.create_task(coro(False))
-        await asyncio.sleep(t*0.014)
+        await ms(t*14)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -45,12 +45,12 @@ async def test_shield():
     # with shield
     for t in range(7):
         task = asyncio.create_task(coro(True))
-        await asyncio.sleep(t*0.014)
+        await ms(t*14)
         # cancel_shield's main feature is that it can withstand repeated cancel
         task.cancel()
-        await asyncio.sleep(0.005)
+        await ms(5)
         task.cancel()
-        await asyncio.sleep(0.005)
+        await ms(5)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task

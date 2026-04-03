@@ -10,12 +10,9 @@ import pytest
 
 import redzed
 
-from .utils import runtest, TimeLogger, strip_ts
+from .utils import Exc, Grp, runtest, TimeLogger, strip_ts
 
 pytestmark = pytest.mark.usefixtures("task_factories")
-
-Exc = pytest.RaisesExc
-Grp = pytest.RaisesGroup
 
 
 async def test_poll(circuit):
@@ -226,7 +223,7 @@ async def test_init_failure(circuit):
         func=lambda: redzed.UNDEF,      # func never delivers
         interval=1,                     # don't care
         initial=redzed.InitWait(0.04))  # no InitValue()
-    with Grp(Exc(RuntimeError, match="not initialized")):
+    with Grp(Exc(RuntimeError, match="hasn't been initialized")):
         await runtest(sleep=0)
     logger.compare([(40, '--stop--')])
 

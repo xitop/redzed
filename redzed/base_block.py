@@ -7,14 +7,13 @@ Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
-import inspect
 import logging
 import textwrap
 import typing as t
 
 from . import circuit
 from .debug import get_debug_level
-from .undef import UNDEF
+from .defs import UNDEF
 from .utils import check_identifier
 
 _logger = logging.getLogger(__package__)
@@ -29,9 +28,6 @@ class BlockOrFormula:
 
     def __init__(self, name: str, *, comment: str = "") -> None:
         """Create new circuit component. Add it to the circuit."""
-        # These are the only two allowed concrete subsclasses
-        if not isinstance(self, (block.Block, formula_trigger.Formula)):
-            raise TypeError("Cannot instantiate an abstract class")
         self.circuit = circuit.get_circuit()
         check_identifier(name, "Block/Formula name")
         if name.startswith('_') and not getattr(type(self), 'RZ_RESERVED', False):
@@ -41,7 +37,10 @@ class BlockOrFormula:
         self.name = name
         self.comment = str(comment)
         self._str_cached: str|None = None   # cache for __str__ value
-        self.circuit.rz_add_item(self)
+        # mypy is right that self could be BlockOrFormula (should be Block|Formula),
+        #   but rz_add_item() will catch the error and raise,
+        #   so we don't have to test the type here
+        self.circuit.rz_add_item(self)      # type: ignore[arg-type]
         self._dependent_formulas: set[formula_trigger.Formula] = set()
         self._dependent_triggers: set[formula_trigger.Trigger] = set()
         self._output: object  = UNDEF
@@ -51,12 +50,9 @@ class BlockOrFormula:
     def type_name(self) -> str:
         return type(self).__name__
 
-    def has_method(self, method_name: str, async_method: bool = False) -> bool:
-        if not callable(method := getattr(self, method_name, None)):
-            return False
-        if async_method and not inspect.iscoroutinefunction(method):
-            return False
-        return True
+    def has_method(self, method_name: str) -> bool:
+        """Check in *method_name* exists."""
+        return callable(getattr(self, method_name, None))
 
     def rz_add_formula(self, formula: formula_trigger.Formula) -> None:
         """Add a formula block depending on our output value."""
@@ -134,4 +130,3 @@ class BlockOrFormula:
 # formula_trigger.Formula and block.Block are subclasses of BlockOrFormula defined here.
 # pylint: disable=wrong-import-position
 from . import formula_trigger
-from . import block

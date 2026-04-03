@@ -35,7 +35,8 @@ async def test_config(circuit):
         cfg = td.rz_export_state()
         td2.event('reconfig', cfg)
         cfg2 = td2.rz_export_state()
-        assert cfg == cfg2 == config_full
+        cfg3 = td2.event('_get_config')
+        assert cfg == cfg2 == cfg3 == config_full
 
     await runtest(tester())
 

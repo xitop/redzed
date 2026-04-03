@@ -14,12 +14,13 @@ from .utils import mini_init, EventMemory
 def test_delivery(circuit):
     """Test basic event delivery and EventMemory."""
     dest = EventMemory('dest')
-
     assert dest.get() is redzed.UNDEF
+
+    mini_init(circuit)
     dest.event('store', 1)
     assert dest.get() == ('store', 1)
-    dest.event('store', 2)
-    assert dest.get() == ('store', 2)
+    redzed.send_event('dest', 'store', 2)
+    assert dest.get() == redzed.get_output('dest') == ('store', 2)
     dest.event('new', 3, first=None, second="x")
     assert dest.get() == ('new', 3, {'first': None, 'second': "x"})
     dest.event('move', 4, left=redzed.UNDEF, right=True)
@@ -35,6 +36,7 @@ def test_retval(circuit):
             return len(edata['evalue'])
 
     lb1 = LB1("testblock")
+    mini_init(circuit)
     assert lb1.event('len', "a") == 1
     assert lb1.event('len', "bb") == 2
     assert lb1.event('len', [10, 20, 30]) == 3
@@ -47,14 +49,16 @@ def test_extra_data(circuit):
             return edata['evalue'] + edata.get('suffix', "!")
 
     lb1 = LB1("testblock")
+    mini_init(circuit)
     assert lb1.event('concat', "a", suffix="-A") == "a-A"
-    assert lb1.event('concat', "bb", suffix="-2B") == "bb-2B"
+    assert redzed.send_event('testblock', 'concat', "bb", suffix="-2B") == "bb-2B"
     assert lb1.event('concat', "ccc") == "ccc!"
 
 
 def test_call_error(circuit):
     """Test incorrect event() calls."""
-    dest = redzed.Memory("testblock")
+    dest = redzed.Memory("testblock", initial=None)
+    mini_init(circuit)
 
     with pytest.raises(TypeError, match="string"):
         dest.event(333, None)
@@ -66,7 +70,7 @@ def test_call_error(circuit):
     with pytest.raises(redzed.UnknownEvent):
         dest.event("no_such_event", None)
     # check that abort was not called
-    assert not circuit._errors
+    assert not circuit.get_errors()
 
 
 def test_error_note(circuit):
@@ -78,6 +82,7 @@ def test_error_note(circuit):
             raise ValueError("all wrong")
 
     lb1 = LB1("testblock")
+    mini_init(circuit)
     with pytest.raises(KeyError, match="almost certainly missing"):
         assert lb1.event('value')
     with pytest.raises(redzed.UnknownEvent):
@@ -85,12 +90,13 @@ def test_error_note(circuit):
     with pytest.raises(ValueError, match="during handling of event 'error'"):
         assert lb1.event('error')
     # check that abort was not called
-    assert not circuit._errors
+    assert not circuit.get_errors()
 
 
 def test_reserved_edata_name(circuit):
     """Except *evalue* there are no other reserved kwarg names in event()."""
     dest = EventMemory('dest')
+    mini_init(circuit)
 
     # pylint: disable=kwarg-superseded-by-positional-arg
     dest.event('ET', 'EV', self='SELF', etype='ETYPE', edata='anything')
@@ -135,7 +141,7 @@ def test_event_handlers(circuit):
 
     with pytest.raises(redzed.UnknownEvent):
         addsub.event('X')
-    assert addsub.get() == 0
+    assert addsub.get() == redzed.get_output('addsub') == 0
     addsub.event('add', 10)
     assert addsub.get() == 0 + 10
     addsub.event('sub', 3)
@@ -147,6 +153,7 @@ def test_event_handlers(circuit):
 def test_event_init(circuit):
     """Monitoring events do not initialize. Other events do."""
     timer = redzed.Timer('timer')
+    circuit._state = redzed.CircuitState.INIT_BLOCKS
 
     for _ in [1, 2]:
         with pytest.raises(RuntimeError, match="Not initialized"):

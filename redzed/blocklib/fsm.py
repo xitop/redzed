@@ -61,11 +61,11 @@ class FSM(redzed.Block):
     A base class for a Finite-state Machine with optional timers.
     """
 
-    # subclasses should define:
-    STATES: Sequence[str|Sequence] = []
+    # subclasses must define:
+    STATES: Sequence[str|Sequence]
         # each state: non-timed: state
         #             or timed: [state, duration, next_state]
-    EVENTS: Sequence[Sequence] = []
+    EVENTS: Sequence[Sequence]
         # each item: [event, [state1, state2, ..., stateN], next_state]
         #        or: [event, ..., next_state] <- literal ellipsis
     # --- and redzed will translate that to: ---
@@ -92,7 +92,9 @@ class FSM(redzed.Block):
         # the transition table - lower priority: {(event, None): next_state}
 
     @classmethod
-    def _check_state(cls, state: str, dynamic_ok: bool = False) -> None:
+    def _check_state(cls, state: object, dynamic_ok: bool = False) -> None:
+        if not isinstance(state, str):
+            raise TypeError(f"FSM state must be a string, but got: {state!r}")
         if state in cls._ct_states:
             return
         if dynamic_ok and state in cls._ct_dynamic_states:
@@ -105,8 +107,11 @@ class FSM(redzed.Block):
             _logger.warning("Useless transition rule: [%s, ..., None]", event)
         key = (event, state)
         if key in cls._ct_transition:
-            state_msg = "..." if state is None else state
-            raise ValueError(f"Multiple transitions rules ['{event}', {state_msg}, ???]")
+            state_msg = "" if state is None else f" in state '{state}'"
+            if cls._ct_transition[key] != next_state:
+                raise ValueError(f"Multiple transition rules for event '{event}'{state_msg}")
+            if redzed.get_debug_level() >= 2:
+                _logger.warning("Duplicate transition rule for event '%s'%s", event, state_msg)
         cls._ct_transition[key] = next_state
 
     @classmethod
@@ -156,7 +161,7 @@ class FSM(redzed.Block):
                     raise ValueError(f"Duplicate definition for state '{state}'")
                 if state in cls._ct_dynamic_states:
                     raise ValueError(
-                        f"Dynamic pseudo-state '{state}' must not appear in the STATES table")
+                        f"Dynamic pseudo-state '{state}' found in the STATES table.")
                 cls._ct_states.add(state)
             except (ValueError, TypeError) as err:
                 err.add_note(f"Offending entry: STATES table, item {i}")
@@ -268,6 +273,8 @@ class FSM(redzed.Block):
         # call super().__init_subclass__ first, we will then check for possible
         # event name clashes with the Block._edt_handlers
         super().__init_subclass__(*args, **kwargs)
+        if not all(hasattr(cls, table) for table in ['STATES', 'EVENTS']):
+            raise TypeError("An FSM requires two control tables: STATES and EVENTS")
         try:
             cls._build_tables()
         except Exception as err:
@@ -283,9 +290,8 @@ class FSM(redzed.Block):
         enter_STATE and exit_STATE.
         """
         if type(self) is FSM:   # pylint: disable=unidiomatic-typecheck
-            raise TypeError("Can't instantiate abstract FSM class")
+            raise TypeError("Can't instantiate the 'FSM' base class")
         prefixed: dict[str, list[tuple[str, t.Any]]] = {
-            'cond': [],
             'enter': [],
             'exit': [],
             't': [],
@@ -317,7 +323,7 @@ class FSM(redzed.Block):
                 self._t_duration[state] = duration
         self._instance_hooks = {
             hook_type: {name: to_tuple(value) for name, value in hooks}
-            for hook_type in ['cond', 'enter', 'exit'] if (hooks := prefixed[hook_type])}
+            for hook_type in ['enter', 'exit'] if (hooks := prefixed[hook_type])}
 
         self._state: str|redzed.UndefType = redzed.UNDEF      # FSM state
         self.sdata: dict[str, object] = {}      # storage for additional internal state data
@@ -332,8 +338,13 @@ class FSM(redzed.Block):
         self._edata: Mapping[str, t.Any]|None = None
             # read-only data of the currently processed event
 
+    # DEPRECATED
     @property
     def state(self) -> str|redzed.UndefType:
+        """Return the FSM state (string) or UNDEF if not initialized."""
+        return self._state
+
+    def fsm_state(self) -> str|redzed.UndefType:
         """Return the FSM state (string) or UNDEF if not initialized."""
         return self._state
 
@@ -385,13 +396,18 @@ class FSM(redzed.Block):
         self._state = state
         self._set_output(self._state)
 
-    def rz_init(self, init_value: str, /) -> None:
+    def rz_init(self, init_value: str|Sequence, /) -> None:
         """Set the initial FSM state."""
         # Do not call self.event() for initialization.
         # It would try to initialize before processing the event.
-        self._check_state(init_value)
-        self.log_debug1("initial state: %s", init_value)
-        self._state = init_value
+        init_state, init_sdata = init_value if is_multiple(init_value) else (init_value, None)
+        self._check_state(init_state)
+        assert isinstance(init_state, str)  # @mypy
+        self.log_debug1("initial state: %s", init_state)
+        self._state = init_state
+        if init_sdata is not None:
+            self.log_debug1("initial sdata: %s", init_sdata)
+            self.sdata = init_sdata.copy()
         self._set_output(self._state)
 
     def rz_init_default(self) -> None:
@@ -435,50 +451,62 @@ class FSM(redzed.Block):
         else:
             self._active_timer = loop.call_later(duration, self._goto, following_state)
 
-    def _start_timer(
-            self, edata_duration: float|str|None, following_state: str) -> None:
-        """Start the timer before enterint the following_state."""
-        state = self._state
-        assert state is not redzed.UNDEF   # starting a timer implies a timed state
-        duration = time_period(edata_duration, passthrough=None, zero_ok=True)
+    def _get_timer_args(self, tstate: str) -> tuple[float, str]|None:
+        """Get timer settings (_set_timer args) or None if no timer is to be set."""
+        if (following_state := type(self)._ct_timed_states.get(tstate)) is None:
+            return None     # not a timed state
+        assert self._edata is not None      # @mypy
+        duration = time_period(self._edata.get('duration'), passthrough=None, zero_ok=True)
         if duration is None:
             duration = time_period(
-                next(self._yield_hook_results('duration', state), None),
+                self._run_hooks('duration', tstate, default=None),
                 passthrough=None, zero_ok=True)
         if duration is None:
-            duration = self._t_duration.get(state)
+            duration = self._t_duration.get(tstate)
         if duration is None:
-            duration = type(self)._ct_duration.get(state)
+            duration = type(self)._ct_duration.get(tstate)
         if duration is None:    # not found or explicitly set to None
-            raise RuntimeError(f"Timer duration for state '{state}' not set")
+            raise RuntimeError(f"Timer duration for state '{tstate}' not set")
         if duration == float('inf'):
-            return
-        self._set_timer(duration, following_state)
+            return None
+        return (duration, following_state)
 
     def _stop_timer(self) -> None:
         """Stop the timer, if any."""
         if (timer := self._active_timer) is not None:
             if not timer.cancelled():
                 timer.cancel()
+                # try not to log the cancellation if the timer has already fired, but
                 # do not rely on the existence of the private attribute '_scheduled'
                 if getattr(timer, '_scheduled', True):
                     self.log_debug2("timer: cancelled")
             self._active_timer = None
 
-    def _yield_hook_results(self, hook_type: _HookType, name: str) -> t.Iterator[t.Any]:
-        """Call hooks of given type for given state/event and yield results."""
+    def _run_hooks(
+            self, hook_type: _HookType, name: str, default: object = redzed.UNDEF
+            ) -> object:
+        """
+        Call hooks of given *hook_type* for given state/event *name*.
+
+        Return the result of the hook defined as a method or *default*
+        if such method doesn't exist. Results of hooks specified by
+        an argument are ignored.
+        """
         if (mhook := type(self)._ct_methods[hook_type].get(name)) is not None:
             self.log_debug2("Calling hook (class method) '%s_%s'", hook_type, name)
             # pylint: disable-next=unnecessary-dunder-call
             hook = mhook.__get__(self, type(self))
-            yield hook() if _hook_args(hook) == 0 else hook(self._edata)
-        if (instance_hooks := self._instance_hooks.get(hook_type)) is None:
-            return
-        if (hooks := instance_hooks.get(name)) is not None:
-            self.log_debug2(
-                "Calling %d hook(s) (external) '%s_%s'", len(hooks), hook_type, name)
-            for hook in hooks:
-                yield hook() if _hook_args(hook) == 0 else hook(self._edata)
+            retval = hook() if _hook_args(hook) == 0 else hook(self._edata)
+        else:
+            retval = default
+        if (instance_hooks := self._instance_hooks.get(hook_type)) is not None:
+            if (hooks := instance_hooks.get(name)) is not None:
+                self.log_debug2(
+                    "Calling %d hook(s) (external) '%s_%s'", len(hooks), hook_type, name)
+                for hook in hooks:
+                    # pylint: disable-next=expression-not-assigned
+                    hook() if _hook_args(hook) == 0 else hook(self._edata)
+        return retval
 
     def _event__get_config(self, _edata: redzed.EventData) -> dict[str, object]:
         """Debugging aid '_get_config'."""
@@ -507,15 +535,18 @@ class FSM(redzed.Block):
         """
         assert self._state is not redzed.UNDEF     # @mypy: tested in caller
         start_event = False     # special event used only when booting the FSM
+        goto_event = False      # special event for ending a timed state
+        dynamic_state = False
         next_state: str|None
         if etype.startswith("Goto:"):
+            goto_event = True
             next_state = etype[5:]      # strip "Goto:" prefix
             self._check_state(next_state, dynamic_ok=True)
         elif etype.startswith("Start:"):
+            start_event = True
             next_state = etype[6:]      # strip prefix
             if next_state != self._state:
                 raise RuntimeError("Event 'Start:STATE' was used incorrectly")
-            start_event = True
         else:
             cls = type(self)
             # pylint: disable=protected-access
@@ -530,30 +561,45 @@ class FSM(redzed.Block):
                 self.log_debug2(
                     "No transition defined for event '%s' in state '%s'", etype, self._state)
                 return False
-            if not all(self._yield_hook_results('cond', etype)):
+            if not self._run_hooks('cond', etype, default=True):
                 self.log_debug2(
                     "event '%s' (%s -> %s) was rejected by cond_%s",
                     etype, self._state, next_state, etype)
                 return False
 
-        selected = next(self._yield_hook_results('select', next_state), None)
-        if selected is not None:
-            self.log_debug2("dynamic event '%s' -> '%s'", next_state, selected)
-            self._check_state(selected)
-            next_state = selected
+        try:
+            if (selected := self._run_hooks('select', next_state, default=None)) is not None:
+                self._check_state(selected)
+                assert isinstance(selected, str)    # @mypy: passed _check_state
+                dynamic_state = True
+                self.log_debug2("dynamic state '%s' -> '%s'", next_state, selected)
+                next_state = selected
+        except Exception as err:
+            err.add_note(f"{self}: Error occurred in {self.type_name}.select_{next_state}()")
+            if start_event or goto_event:
+                self.circuit.abort(err)
+            raise
 
-        if not start_event:
-            for _ in self._yield_hook_results('exit', self._state):
-                pass    # consume all
-            self._stop_timer()
-            self.log_debug1("state: %s -> %s (event: %s)", self._state, next_state, etype)
-        self._state = next_state
-        self._set_output(self._state)
-        if (following_state := type(self)._ct_timed_states.get(self._state)) is not None:
-            assert self._edata is not None  # @mypy
-            self._start_timer(self._edata.get('duration'), following_state)
-        for _ in self._yield_hook_results('enter', self._state):
-            pass
+        try:
+            timer_args = self._get_timer_args(next_state)
+        except Exception as err:
+            if start_event or goto_event or dynamic_state:
+                self.circuit.abort(err)
+            raise
+
+        try:
+            if not start_event:
+                self._run_hooks('exit', self._state)
+                self._stop_timer()
+                self.log_debug1("state: %s -> %s (event: %s)", self._state, next_state, etype)
+            self._state = next_state
+            self._set_output(self._state)
+            if timer_args is not None:
+                self._set_timer(*timer_args)
+            self._run_hooks('enter', self._state)
+        except Exception as err:
+            self.circuit.abort(err)
+            raise
         return True
 
     def _default_event_handler(self, etype: str, edata: redzed.EventData) -> bool:
@@ -562,8 +608,6 @@ class FSM(redzed.Block):
 
         Refer to _fsm_event_handler().
         """
-        if self._state is redzed.UNDEF:
-            raise RuntimeError(f"{self}: Received event '{etype}' before initialization")
         if self._event_handler_lock:
             raise RuntimeError("Recursion error: Got an event while handling an event.")
         self._event_handler_lock = True
@@ -577,19 +621,16 @@ class FSM(redzed.Block):
             self._event_handler_lock = False
             self._edata = None
 
-    def _send_synthetic_event(self, etype: str, edata: redzed.EventData|None = None) -> None:
+    def _send_synthetic_event(self, etype: str) -> None:
         """
         Send an synthetic event (implementation detail).
 
-        To protect the FSM, the used event names are not
+        To protect the FSM, the synthetic event names are not
         accepted by the .event() entry point.
         """
-        if edata:
-            self.log_debug2("Synthetic event '%s', edata: %s", etype, edata)
-        else:
-            self.log_debug2("Synthetic event '%s'", etype)
-        # we muss bypass .event()
-        self._default_event_handler(etype, {} if edata is None else edata)
+        self.log_debug2("Synthetic event '%s'", etype)
+        # we must bypass .event()
+        self._default_event_handler(etype, {})
 
     def _goto(self, state: str) -> None:
         """Unconditionally go to 'state'. To be used by the FSM itself only!"""

@@ -2,13 +2,11 @@
 Test the Timer block.
 """
 
-import asyncio
-
 import pytest
 
 import redzed
 
-from .utils import runtest, TimeLogger
+from .utils import ms, runtest, TimeLogger
 
 pytestmark = pytest.mark.usefixtures("task_factories")
 
@@ -61,19 +59,19 @@ async def test_restartable(circuit):
         nlogger.log(ntimer)
 
     async def tester():
-        await asyncio.sleep(0.05)
+        await ms(50)
         assert rmono.event('start')         # start OK
         assert nmono.event('start')         # start OK
-        await asyncio.sleep(0.05)
+        await ms(50)
         assert rmono.event('start')         # re-start OK
         assert not nmono.event('start')     # re-start not ok!
-        await asyncio.sleep(0.1)
+        await ms(100)
         assert rmono.event('start')         # re-start OK
         assert nmono.event('start')         # start OK
-        await asyncio.sleep(0.05)
+        await ms(50)
         rmono.event('start')
         nmono.event('start')
-        await asyncio.sleep(0.2)
+        await ms(200)
 
     await runtest(tester())
 
@@ -98,11 +96,11 @@ async def test_duration(circuit):
 
     async def tester():
         mono.event('start')
-        await asyncio.sleep(0.15)
+        await ms(150)
         mono.event('start', duration=0.05)
-        await asyncio.sleep(0.1)
+        await ms(100)
         mono.event('start', duration=None)
-        await asyncio.sleep(0.25)
+        await ms(250)
 
     await runtest(tester())
     LOG = [

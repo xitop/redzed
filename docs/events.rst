@@ -62,7 +62,7 @@ is just a convention for events with these characteristics:
 
   Due to the absence of side-effects are monitoring events accepted
   during the shutdown when all other events are rejected
-  with the :exc:`CircuitShutDown` exception.
+  with the :exc:`CircuitNotReady` exception.
 
 If you are creating an own type of blocks, feel free to use the ``'_get_'`` prefix,
 but only for events that match these characteristics.

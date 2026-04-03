@@ -44,6 +44,7 @@ reports.output-format = 'colorized'
 	"duplicate-code",
 	"invalid-name",
 	"missing-function-docstring",
+	"global-statement",
 	"too-few-public-methods",
 	"too-many-arguments",
 	"too-many-branches",
@@ -71,3 +72,4 @@ asyncio_mode = "auto"
 asyncio_default_test_loop_scope = "module"
 asyncio_default_fixture_loop_scope = "module"
 testpaths = ["tests"]
+tmp_path_retention_policy = "failed"

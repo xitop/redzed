@@ -50,7 +50,8 @@ objects.
 
 Finally, use the saved reference to post the schedule to the cron::
 
-  cron.set_schedule(self, schedule)
+  cron.set_schedule(blk, schedule)
+          #         ^^^ use self when a block is setting its own schedule
 
 The called method is:
 

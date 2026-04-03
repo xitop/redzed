@@ -15,18 +15,19 @@ Docs: https://redzed.readthedocs.io/en/latest/
 Home: https://github.com/xitop/redzed/
 """
 
-__version_info__ = (26, 3, 13)
+__version_info__ = (26, 4, 4)
 __version__ = '.'.join(str(n) for n in __version_info__)
 
-from . import circuit, block, debug, formula_trigger, initializers, undef
+from . import circuit, block, debug, defs, formula_trigger, initializers, validator
 
 from .block import *
 from .circuit import *
 from .debug import *
+from .defs import *
 from .formula_trigger import *
 from .initializers import *
-from .undef import *
 # .utils not imported
+from .validator import *
 
 # block library
 from . import blocklib
@@ -38,7 +39,8 @@ __all__ = [
     *blocklib.__all__,
     *circuit.__all__,
     *debug.__all__,
+    *defs.__all__,
     *formula_trigger.__all__,
     *initializers.__all__,
-    *undef.__all__,
+    *validator.__all__,
     ]

@@ -19,8 +19,8 @@ Block API
 
     If you are not creating a new type of logic blocks,
     you can ignore all :meth:`!rz_methods` and :attr:`!rz_attributes`.
-    Symbols starting with a ``rz_`` prefix are reserved
-    for interactions with the circuit runner.
+    Symbols starting with a ``rz_`` or ``RZ_`` prefix
+    are reserved for interactions with the circuit runner.
 
   Sections:
     - :ref:`1. Name and comment`
@@ -200,10 +200,29 @@ for its functionality.
 5. Persistent state
 ===================
 
-.. tip::
+**Attributes:**
 
-  Regardless of the persistent state feature, you might want to implement
-  :meth:`rz_export_state` just for block inspection purposes.
+  .. attribute:: Block.RZ_PERSISTENCE
+    :type: bool
+
+    Class attribute. It is :const:`True` if the persistent state
+    is supported by this block type.
+
+    This attribute is created automatically by introspection.
+
+  .. attribute:: Block.RZ_STATE_IS_OUTPUT
+    :type: bool
+
+    Optional class attribute. If it exists and is :const:`True`, the internal
+    state contains just the block's output and nothing else. This information
+    is a hint for :class:`PersistentState` when selecting default *save_flags*.
+
+  .. attribute:: Block.rz_key
+    :type: str
+
+    The persistent storage key associated with this block. It contains the
+    block's name. A renamed block won't find its state saved by the old name.
+
 
 Block's :ref:`state persistence <Persistent state>` support requires two methods:
 
@@ -221,6 +240,11 @@ Block's :ref:`state persistence <Persistent state>` support requires two methods
   the ":ref:`_get_state`" monitoring event, because the event handler makes
   necessary checks before calling the :meth:`!rz_export_state`.
 
+  .. tip::
+
+    Regardless of the persistent state feature, you might want to implement
+    :meth:`!rz_export_state` just for block inspection purposes.
+
 .. method:: Block.rz_restore_state(state: object, /) -> None
 
   Optional. Initialize by restoring the entire internal *state* and the
@@ -228,24 +252,16 @@ Block's :ref:`state persistence <Persistent state>` support requires two methods
   in some previous program run. Keep in mind that the *state*
   could have been exported by an older program version.
 
-**Attributes:**
+State saving flags
+------------------
 
-  .. attribute:: Block.RZ_PERSISTENCE
-    :type: bool
 
-    Class attribute. It is :const:`True` if the persistent state
-    is supported by this block type.
-
-  .. attribute:: Block.rz_key
-    :type: str
-
-    The persistent storage key associated with this block. It contains the
-    block's name. A renamed block won't find its state saved by the old name.
+**Attribute:**
 
   .. attribute:: Block.rz_save_flags
     :type: redzed.SaveFlags
 
-    State persistence settings for a particular block.
+    State persistence settings set by block's :class:`PersistentState` initializer.
     The value is a combination of :class:`SaveFlags` OR-ed together.
     :attr:`!rz_save_flags` is :abbr:`truthy (boolean value is True)`
     if and only if the state persistence is switched on, i.e.:
@@ -254,11 +270,11 @@ Block's :ref:`state persistence <Persistent state>` support requires two methods
     - persistent state is supported by the block type, see :attr:`RZ_PERSISTENCE`
     - the feature was enabled by using :class:`PersistentState` among initializers.
 
-
 .. class:: SaveFlags
 
   Enumeration of `flags [↗] <https://docs.python.org/3/library/enum.html#enum.Flag>`_
   related to state persistence settings stored in :attr:`Block.rz_save_flags`.
+  Their semantics is documented in :class:`PersistentState`.
 
   .. attribute:: redzed.SaveFlags.ENABLED
     :noindex:
@@ -287,7 +303,6 @@ Block's :ref:`state persistence <Persistent state>` support requires two methods
 .. data:: SF_OUTPUT
 
     Aliases to respective :class:`SaveFlags` members.
-    Their semantics is documented in :class:`PersistentState`.
 
 
 6. Shutdown and cleanup
@@ -337,16 +352,6 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
   This is the final cleanup function for blocks that must stay
   active also during the shutdown phase, e.g. the output buffers.
 
-.. method:: Block.rz_is_shut_down() -> bool
-
-  Blocks reject all non-monitoring events after shutdown.
-  This method is called to check if this is the case.
-
-  The default implementation follows the circuit's state.
-  i.e. when the circuit shuts down, the block shuts down as well.
-  This default is appropriate for most blocks except output
-  blocks which shut down after :ref:`stop functions <Stop functions>`.
-
 
 7. Event handling
 =================
@@ -361,7 +366,33 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
 
   When an event requires a value, the preferred name for it is ``'evalue'``.
 
-7A. Entry point:
+Sending and receiving:
+----------------------
+
+.. method:: Block.is_ready() -> bool
+
+  Check whether the block is ready to accept non-monitoring events.
+  If not ready, these events will be rejected with a :exc:`CircuitNotReady` error.
+  Monitoring events are always accepted.
+
+  The default implementation checks the circuit's state, because
+  not only the block itself, but also dependent formulas and triggers
+  must be ready. This implies that normally are blocks ready only in
+  states :attr:`CircuitState.INIT_BLOCKS` and :attr:`CircuitState.RUNNING`.
+
+  .. dropdown:: Note for developers
+
+    There exist blocks with special requirements for which is the default
+    too narrow. For instance output blocks do shut down after
+    :ref:`stop functions <Stop functions>` and the stop functions are
+    active during circuit shutdown. These special blocks needs to override
+    :meth:`!Block.is_ready` and define their own rules.
+
+    However, it could be easily overlooked that a block operates also in circuit
+    states where formulas and triggers are not working. In order to prevent
+    mistakes, we recommend that blocks with custom :meth:`!Block.is_ready`
+    have a fixed output value, because there is no reason to connect
+    formulas or triggers to a fixed output.
 
 .. method:: Block.event(etype: str, /, evalue: object = redzed.UNDEF, **edata: object) -> object
 
@@ -371,8 +402,8 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
   Handle the incoming event of type *etype* with optionally attached *edata*
   by dispatching it to the appropriate handler. Return the handler's exit value.
   :exc:`UnknownEvent` is raised if there is no handler for the *etype*.
-  :exc:`CircuitShutDown` is raised if a non-monitoring event arrives after
-  block's shutdown - see :meth:`Block.rz_is_shut_down`.
+  :exc:`CircuitNotReady` is raised if a non-monitoring event arrives after
+  block's shutdown - see :meth:`Block.is_ready`.
 
   The *evalue* is part of the *edata*. If it is given, it is inserted
   into *edata* as ``edata['evalue']``. It is accepted either as a positional or
@@ -389,20 +420,29 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
   Send an event to a block given by its *name* and return the result.
   After resolving the name, remaining arguments are passed to :meth:`Block.event`.
 
+  Following exceptions may be raised during normal operation:
+
 .. exception:: UnknownEvent
 
   This exception is raised when :meth:`Block.event` is called
   with an event type that the block does not recognize.
 
-.. exception:: CircuitShutDown
+.. exception:: ValidationError
+  :noindex:
+
+  Sent data was rejected by block's validator. Main article: :ref:`Data validation`.
+
+.. exception:: CircuitNotReady
 
   This exception is subclassed from :exc:`!RuntimeError`. It is raised when
-  :meth:`Block.event` is called during shut down. The exact moment when a block
-  starts to reject events depends on :meth:`Block.rz_is_shut_down`.
+  a block is not ready to process events, e.g. during shutdown.
+  See also: :meth:`Block.is_ready`.
+
   :ref:`Monitoring events` are excluded from the check and are always accepted.
 
 
-7B. Event handlers:
+Event handlers:
+---------------
 
 .. method:: Block._event_ETYPE(edata: redzed.EventData) -> object
 

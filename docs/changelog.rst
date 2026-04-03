@@ -4,7 +4,49 @@
 Changelog
 =========
 
-Version numbers are based on the release date (Y.M.D).
+Version numbers are based on the release date (Y.M.D). Only recent changes
+are listed here. Full history can be found on GitHub.
+
+
+26.4.4 (last beta)
+==================
+
+Redzed is now feature-complete. The next release will be probably
+a stable release candidate.
+
+Breaking changes:
+
+- :class:`FSM`: external ``cond_EVENT`` functions are no longer supported.
+
+Renaming - the old names will be kept as an alias for a short transitory period:
+
+- :attr:`!FSM.state` (property) was replaced by :meth:`FSM.fsm_state` (method).
+- :exc:`!CircuitShutDown` was replaced by :exc:`CircuitNotReady`, because
+  a shutdown is not the only reason for being not ready.
+
+New features, improvements:
+
+- :ref:`Block initializers` are now reusable.
+- :ref:`Input validators <Data validation>`: a dedicated
+  :exc:`ValidationError` was added. This change aims to expose
+  eventual problems with validators themselves.
+- :meth:`Circuit.get_errors` was added.
+- :class:`FSM`: Initializers can set also the :attr:`FSM.sdata`.
+- :class:`FSM`: Some features are more precisely specified, especially
+  :ref:`error handling rules <Event error handling>`.
+- :class:`redzed.utils.PersistentDict`: an empty file is accepted as valid.
+  This allows to prevent :exc:`FileNotFoundError` on first run.
+
+Bug fixes:
+
+- Block events should be rejected when formulas and triggers are not functional,
+  i.e. when they are uninitialized or have been shut down. Previously
+  only the latter condition was tested.
+- :class:`redzed.utils.PersistentDict`: no data was saved with ``sync_time=0``.
+- :class:`MemoryExp`: Event data items ``'suppress'`` and ``'duration'``
+  in a ``"store"`` event were not honored.
+- :class:`MemoryExp`: Event ``'expire'`` was not implemented.
+- :class:`Formula`: detection of dependency loops was not working.
 
 
 26.3.13 (beta)
@@ -37,7 +79,7 @@ New features, improvements:
   previously they were ignored
 - Functions :func:`redzed.send_event` and :func:`redzed.get_output`
   were added
-- :ref:`Data validators <Input data validation>` can reject values
+- :ref:`Data validators <Data validation>` can reject values
   also by returning :const:`UNDEF`
 - Triggers and Formulas now offer simple
   :ref:`access to the previous output <Access to the previous output>` value
@@ -70,16 +112,8 @@ New features, improvements:
   filtered out by :meth:`Block.event`
 
 
-26.2.4 (beta)
-=============
-
-New features, improvements:
-
-- Output blocks: introducing :ref:`stop functions <Stop functions>`
-- :class:`Repeat`: settings may be modified dynamically
-
-
 Older releases:
 
+- 26.2.4 first beta
 - 26.1.28 alpha stage
 - 25.12.30 Initial release

@@ -10,12 +10,9 @@ import pytest
 
 import redzed
 
-from .utils import TimeLogger, runtest
+from .utils import Exc, Grp, runtest, TimeLogger
 
 pytestmark = pytest.mark.usefixtures("task_factories")
-
-Exc = pytest.RaisesExc
-Grp = pytest.RaisesGroup
 
 
 async def output_ctrl(
@@ -51,7 +48,7 @@ async def output_ctrl(
         buff2 = buff.attach_output(aw_func=work_80, rest_time=rest_time, **kwargs)
         assert buff2 == buff
         assert list(circuit.get_items(redzed.OutputController)) \
-            == [circuit.resolve_name('buff_io')]
+            == [circuit.resolve_name('io')]
     else:
         redzed.OutputController(
             'out', aw_func=work_80, buffer=buff, rest_time=rest_time, **kwargs)
@@ -169,7 +166,7 @@ async def test_rest_time_too_long(circuit):
     async def dummy():
         pass
 
-    with pytest.raises(ValueError, match="shorter than"):
+    with Exc(ValueError, match="shorter than"):
         redzed.OutputController(
             'not_OK',
             buffer=redzed.MemoryBuffer(redzed.unique_name()),

@@ -1,8 +1,8 @@
 """
-Test the timed states in FSMs.
+Test FSM blocks.
 """
 
-# pylint: disable=missing-class-docstring, no-member
+# pylint: disable=missing-class-docstring, no-member, unused-argument
 
 import asyncio
 import time
@@ -11,11 +11,9 @@ import pytest
 
 import redzed
 
-from .utils import runtest, TimeLogger
+from .utils import Exc, Grp, ms, runtest, TimeLogger
 
 pytestmark = pytest.mark.usefixtures("task_factories")
-
-# pylint: disable=unused-argument
 
 
 async def test_duration(circuit):
@@ -71,16 +69,20 @@ async def test_duration(circuit):
         # duty cycle on:off = 20:20 ms
         (0, True),  (20, False),
         (40, True), (60, False),
-        (80, True),  # 10:30
-                     (90, False),
-        (120, True), (130, False),
-        (160, True), (170, False),
-        (200, True),  # 40:0 (i.e. just overhead)
-                     (240, False),
-        (240, True), (280, False),
-        (280, True), (320, False),
-        (320, True), # cycle 9 -> shutdown
-        (320, '--stop--'),
+        (80, True),
+        # 1. the timer is set to 20 ms
+        # 2. duty cycle changed to: 10:30 ms
+                     (100, False),
+        (130, True), (140, False),
+        (170, True), (180, False),
+        (210, True),
+        # 1. the timer is set to 10 ms
+        # 2. duty cycle changed to: 40:0 ms (0 = just overhead);
+                     (220, False),
+        (220, True), (260, False),
+        (260, True), (300, False),
+        (300, True), # cycle 9 -> shutdown
+        (300, '--stop--'),
         ]
     logger.compare(LOG)
 
@@ -90,6 +92,7 @@ async def test_start(circuit):
 
     class Delay(redzed.FSM):
         STATES = [('begin', "0.1s", 'end'), 'end']
+        EVENTS = []
 
     redzed.Memory('slow_init', initial=[redzed.InitWait(0.05), redzed.InitValue("i")])
     logger = TimeLogger('logger', mstart=True, mstop=True)
@@ -131,9 +134,9 @@ async def test_afterrun(circuit):
 
     async def tester():
         ar_fsm.event('start')
-        await asyncio.sleep(0.1)
+        await ms(100)
         ar_fsm.event('stop')
-        await asyncio.sleep(0.05)
+        await ms(50)
 
     await runtest(tester())
     LOG = [
@@ -214,3 +217,104 @@ async def test_dynamic2(circuit, choose_long):
         ]
 
     logger.compare(LOG)
+
+
+@pytest.mark.parametrize("duration", [None, "text", ()])
+async def test_duration_error_event(circuit, duration):
+    """Explicit events are rejected on timer duration errors."""
+    class TestFSM(redzed.FSM):
+        STATES = [
+            "off", ("on", None, "off")]
+        EVENTS = [
+            ("start", ..., "on"),
+            ]
+
+    fsm = TestFSM('myfsm')
+
+    ERRORS = (RuntimeError, TypeError, ValueError)
+
+    end_reached = False
+
+    async def tester():
+        nonlocal end_reached
+        fsm.event("start", duration="1ms")
+        assert fsm.fsm_state() == "on"
+        await ms(10)
+        assert fsm.fsm_state() == "off"
+        with Exc(ERRORS):
+            # this error is not fatal
+            fsm.event("start", duration=duration)
+        assert fsm.fsm_state() == "off"
+        await ms(10)
+        end_reached = True
+
+    await runtest(tester())
+    assert end_reached
+
+
+async def test_duration_error_dynamic(circuit):
+    """Test fatal timer duration error (timed state selected dynamically)."""
+    class TestFSM(redzed.FSM):
+        STATES = [
+            "off", ("on", None, "off")]
+        EVENTS = [
+            ("start1", ..., "on"),
+            ("start2", ..., "dyn"),
+            ]
+        def select_dyn(self):
+            return "on"
+
+    fsm = TestFSM('myfsm')
+
+    async def tester():
+        with Exc(RuntimeError):
+            # regular event fails and that's all
+            fsm.event("start1")
+        assert fsm.fsm_state() == "off"
+        await ms(10)
+        with Exc(RuntimeError):
+            # but this one is fatal (cannot remain in "dyn" state)
+            fsm.event("start2")
+        await asyncio.sleep(1)
+        assert False, "not reached"
+
+    with Grp(Exc(RuntimeError)):
+        await runtest(tester())
+
+
+async def test_duration_error_state(circuit):
+    """Test fatal timer duration error (timed state after timed state)."""
+    class TestFSM(redzed.FSM):
+        STATES = [
+            "off",
+            ("on1", 0.01, "on2"),
+            ("on2", None, "off"),
+            ]
+        EVENTS = [
+            ("start", ..., "on1"),
+            ]
+        def duration_on2(self):
+            return "invalid-duration"
+
+    fsm = TestFSM('myfsm')
+
+    async def tester():
+        fsm.event("start")
+        assert fsm.fsm_state() == "on1"     # start -> on1 was OK, but on1 -> on2 will fail
+        await asyncio.sleep(1)
+        assert False, "not reached"
+
+    with Grp(Exc(ValueError, match="Invalid time representation")):
+        await runtest(tester())
+
+
+async def test_duration_error_init(circuit):
+    """Test fatal timer duration error (timed state is initial state)."""
+    class TestFSM(redzed.FSM):
+        STATES = [("on", None, "off"), "off"]
+        EVENTS = []
+
+    TestFSM('myfsm')
+
+    with Grp(Exc(RuntimeError, match="duration for state 'on'")):
+        await runtest(sleep=1)

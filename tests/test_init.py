@@ -2,9 +2,11 @@
 Test block initializers.
 """
 
-# pylint: disable=missing-class-docstring
+# pylint: disable=missing-class-docstring, unused-argument
 
 from unittest.mock import patch
+
+import pytest
 
 import redzed
 
@@ -71,3 +73,51 @@ def test_undef(circuit):
         mini_init(circuit)
         assert not wrapped.called
     assert mem.get() is False
+
+
+def test_reusability(circuit):
+    """Initializers are reusable."""
+    cnt = -2
+
+    def counter():
+        # returns: UNDEF, 0, 1, 2, 3, ...
+        nonlocal cnt
+        cnt += 1
+        return redzed.UNDEF if cnt < 0 else cnt
+
+    init1 = redzed.InitFunction(counter)
+    init2 = redzed.InitValue("X")
+
+    mems = [redzed.Memory(redzed.unique_name(), initial=(init1, init2)) for x in range(5)]
+    assert all(m.rz_initializers == [init1, init2] for m in mems)
+    mini_init(circuit)
+    assert mems[0].rz_initializers == [None, None]
+    assert all(m.rz_initializers == [None, init2] for m in mems[1:])
+    assert mems[0].get() == "X"
+    assert [m.get() for m in mems[1:]] == list(range(4))
+
+
+def test_no_init_support(circuit):
+    """Some blocks do not support state initialization."""
+    class NoInit(redzed.Block):
+        pass
+
+    with pytest.raises(TypeError, match='not supported'):
+        NoInit('np1', initial="value")
+
+
+def test_no_ps_support(circuit):
+    """Some blocks do not support persistent state."""
+    class NoPers(redzed.Block):
+        def rz_init(self, value):
+            pass
+
+    NoPers('np0', initial=redzed.InitValue(0))
+    with pytest.raises(TypeError, match='not supported'):
+        NoPers('np1', initial=redzed.PersistentState())
+
+
+def test_only_one_ps(circuit):
+    """PersistentState initializer may be used just once"""
+    with pytest.raises(ValueError, match='Multiple'):
+        redzed.Memory('mem', initial=[redzed.PersistentState(), redzed.PersistentState()])

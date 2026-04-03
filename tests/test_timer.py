@@ -36,7 +36,7 @@ def test_timer_static(circuit):
 
     def trans(event, state):
         bis.event(event)
-        assert bis.state == 'on' if state else 'off'
+        assert bis.fsm_state() == 'on' if state else 'off'
         assert bis.get() is bool(state)
 
     assert bis.get() is False

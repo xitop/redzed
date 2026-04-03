@@ -2,6 +2,8 @@
 Test internal utilities.
 """
 
+import pytest
+
 import redzed
 
 
@@ -14,6 +16,25 @@ def test_func_call_string():
     assert test(sum, -1, "arg") == "sum(-1, 'arg')"
     assert test(print, f=False, t=True, n=[1, 2]) == "print(f=False, t=True, n=[1, 2])"
     assert test(None, 1, 2, None, a = 1, b = 'xy') == "(1, 2, None, a=1, b='xy')"
+
+
+def test_func_name():
+    """Test func_name."""
+    func_name = redzed.utils.func_name
+
+    class NcCs:
+        """NOT callable class"""
+
+    class ClCs:
+        """Callable class"""
+        def __call__(self):
+            pass
+
+    for nc in [0, "text", NcCs()]:
+        with pytest.raises(TypeError, match="not callable"):
+            func_name(nc)
+    assert func_name(NcCs) == "NcCs"
+    assert func_name(ClCs()) == "ClCs.__call__"
 
 
 def test_is_multiple_and_to_tuple():

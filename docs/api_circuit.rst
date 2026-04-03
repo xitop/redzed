@@ -16,12 +16,13 @@ Circuit API
 
   .. attention::
 
-    Intended for usage in unit tests. Avoid in production code,
-    because a perfect cleanup cannot be guaranteed.
+    Intended for usage in unit tests. Do not use in production code,
+    because a perfect cleanup cannot be guaranteed. Avoid resetting
+    a running circuit if possible.
 
-  Clear the circuit data. The next :func:`get_circuit` call will
-  return a new circuit. The circuit must not be running.
-  :func:`!reset_circuit` does not modify the :ref:`debug level <Debug levels>`.
+  Shut down the circuit runner if it is running. Clear the circuit data.
+  The next :func:`get_circuit` call will return a new circuit.
+  :func:`!reset_circuit` does not reset the :ref:`debug level <Debug levels>`.
 
 ----
 
@@ -39,12 +40,13 @@ Circuit API
 
   .. attribute:: INIT_CIRCUIT
 
-    The runner was started and initializes itself. No circuit modification
+    The runner has been started and initializes itself. No circuit modification
     is allowed from this moment.
 
   .. attribute:: INIT_BLOCKS
 
-    The runner is now initializing blocks and triggers.
+    The runner is now initializing blocks and triggers. Blocks start to accept
+    events.
 
   .. attribute:: RUNNING
 
@@ -52,11 +54,11 @@ Circuit API
 
   .. attribute:: SHUTDOWN
 
-    Shutting down.
+    Shutting down. Triggers are deactivated. Blocks stop to accept events.
 
   .. attribute:: CLOSED
 
-    The runner has exited. It cannot be restarted.
+    The runner has terminated. It cannot be restarted.
 
 ----
 
@@ -127,21 +129,26 @@ Circuit API
 
 .. method:: Circuit.shutdown() -> None
 
-  Stop the runner if it was started.
-  Prevent the runner from starting if it wasn't started yet.
+  Stop the runner if it is running.
+  Prevent the runner from starting if it hasn't been started yet.
 
 .. method:: Circuit.abort(exc: Exception) -> None
 
   Abort the circuit runner due to an exception.
-  Prevent the runner from starting if it wasn't started yet.
+  Prevent the runner from starting if it hasn't been started yet.
 
   Calling :meth:`!abort` is necessary only when an exception wouldn't
   be propagated to the runner. If unsure, do call.
 
-  :meth:`!abort` may be called multiple times. The first call start
+  :meth:`!abort` may be called multiple times. The first call starts
   a shutdown. When :func:`run` exits after the shutdown, it raises
   exceptions from all :meth:`!abort` calls in an :exc:`!ExceptionGroup`
   with duplicates removed.
+
+.. method:: Circuit.get_errors() -> list[Exception]
+
+   Return a list of exceptions collected by :meth:`Circuit.abort`.
+   Do not modify the list.
 
 
 3. Persistent storage
@@ -188,20 +195,21 @@ Circuit API
 
 .. class:: redzed.utils.PersistentDict(datafile, format=None, *, sync_time=10.0, error_callback=None)
 
-  Create a :type:`!dict` compatible object. Populate if with data
-  loaded from *datafile*. Save any modifications back to the *datafile*.
+  Create a dict-like object compatible with :meth:`Circuit.set_persistent_storage`.
+  Populate it with data loaded from *datafile*.
+  Save subsequent modifications back to the *datafile*.
 
-  :param str datafile:
+  :param str|os.PathLike[str] datafile:
     File name of the data file. Always use an absolute path.
-    The file is updated atomically using temporary files.
-    The parent directory must be writable.
+    The parent directory must be writable, because
+    *datafile* is updated atomically using temporary files.
 
   :param Literal['json', 'pickle', None] format:
     Data serialization format. Supported are ``'json'`` and ``'pickle'``.
 
     The format can be explicitly set or derived from the file name.
-    If *format* is unset (:const:`None`), the format is set
-    according to *datafile* suffix. Recognized are:
+    If the *format* option is unset (:const:`None`), the format is taken
+    from the *datafile* suffix. Recognized are:
     ``'.pkl'``, ``'.pickle'`` and ``'.json'``. Using other
     suffixes requires an explicit *format* setting.
 
@@ -218,25 +226,33 @@ Circuit API
       pay attention to the security warning (*"Only unpickle data you trust"*)
       on the linked web page.
 
+    As a special case, an empty *datafile* (0 bytes) is always treated
+    as it were containing an empty dict regardless of the *format*.
+
   :param float|str|None sync_time:
     :class:`!PersistentDict` modifications are normally cached for better performance.
-    *sync_time* is max. time in seconds between a dict modification and a file save.
+    *sync_time* is maximum time in seconds between a dict modification and a file save.
     It can be given as a :ref:`string with time units <Time durations with units>` too.
     When set to zero, data is saved immediately without caching.
 
-  :param error_callback:
-    Optional callable taking one argument. Every time an error occurs,
+  :param Callable[[Exception], Any]|None error_callback:
+    This parameter controls error handling. It takes an optional
+    callable taking one argument. Every time an error occurs,
     the exception is logged, this function (if defined) is called with
     the exception as its sole argument and the :class:`!PersistentDict`
-    code continues and tries to retry or recover from the error.
+    code continues to run trying to recover from the error.
+    The error recovery code may remove *datafile* that appears to be damaged.
+    If that happens, :class:`!PersistentDict` attempts to preserve
+    the offending *datafile* under modified name for a later inspection.
 
     If the primary concern is to keep the application running,
-    no *error_callback* is needed. OTOH, if the persistent data are so important
+    no *error_callback* is needed ``(error_callback=None)``.
+    This is the default setting. OTOH, if the persistent data are so important
     that errors are critical, use: ``error_callback=circuit.abort``.
 
-    Note that a strict *error_callback* setting that will not permit
-    :exc:`FileNotFound` prevents the initial run on which the *datafile*
-    would be created for the first time.
+    Note that an *error_callback* that does not permit the :exc:`FileNotFoundError`
+    exception prevents the initial run on which the *datafile* would be used
+    for the first time. In such case, create an empty file manually.
 
   .. method:: flush() -> None
 
@@ -246,7 +262,6 @@ Circuit API
 
     storage = rz.utils.PersistentDict('/path/to/file.json')
     circuit.set_persistent_storage(storage, close_callback=storage.flush)
-
 
 .. method:: Circuit.save_persistent_state(blk: Block) -> None
 

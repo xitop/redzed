@@ -8,7 +8,17 @@ import itertools
 import time
 # import typing as t
 
+import pytest
+
 import redzed
+
+
+Exc = pytest.RaisesExc
+Grp = pytest.RaisesGroup
+
+
+def ms(milliseconds):
+    return asyncio.sleep(milliseconds/1000)
 
 
 class EventMemory(redzed.Block):
@@ -141,13 +151,20 @@ def mini_init(circuit):
     with the regular runner.
     """
     # pylint: disable=protected-access
+    CS = redzed.CircuitState
     circuit._check_persistent_storage()
     get_items = circuit.get_items
+
+    circuit._state = CS.INIT_CIRCUIT
     for blk in get_items(redzed.Block):
         if blk.has_method('rz_pre_init'):
             blk.rz_pre_init()
     for frm in get_items(redzed.Formula):
         frm.rz_pre_init()
+    for trig in get_items(redzed.Trigger):
+        trig.rz_pre_init()
+
+    circuit._state = CS.INIT_BLOCKS
     blocks = list(get_items(redzed.Block))
     for blk in blocks:
         if not blk.is_initialized():
@@ -155,10 +172,14 @@ def mini_init(circuit):
     for blk in blocks:
         if not blk.is_initialized():
             raise RuntimeError(f"Block {blk.name} was not initialized")
+    for frm in circuit.get_items(redzed.Formula):
+        if not frm.is_initialized():
+            raise RuntimeError(
+                f"Formula '{frm.name}' was not initialized (dependency loop?)")
     for trig in get_items(redzed.Trigger):
-        trig.rz_pre_init()
         trig.rz_start()
     for blk in blocks:
         if blk.has_method('rz_start'):
             blk.rz_start()
+    circuit._state = CS.RUNNING
     circuit._start_ts = time.monotonic()

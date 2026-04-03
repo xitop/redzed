@@ -2,7 +2,7 @@
 Test basic circuit block related functionality.
 """
 
-# pylint: disable=unused-argument
+# pylint: disable=unused-argument, missing-class-docstring
 
 import pytest
 
@@ -22,6 +22,17 @@ def test_undef():
     assert type(undef) is redzed.UndefType
     # pylint: disable-next=no-value-for-parameter
     assert redzed.UndefType() is redzed.UndefType()     # is a singleton
+
+
+def test_undef_output(circuit):
+    """set output to UNDEF is not allowed."""
+    mem_blk = redzed.Memory('mem')
+    assert mem_blk.get() is redzed.UNDEF
+    # pylint: disable=protected-access
+    mem_blk._set_output("XY")
+    assert mem_blk.get() == "XY"
+    with pytest.raises(ValueError):
+        mem_blk._set_output(redzed.UNDEF)
 
 
 def test_no_dup(circuit):
@@ -48,9 +59,10 @@ def test_generated_names(circuit):
     for _ in range(6):
         redzed.Memory(redzed.unique_name())
     for prefix in ("one", "two", "TH3_"):
+        Noop(prefix + "_2")
         for _ in range(4):
             Noop(redzed.unique_name(prefix))
-    assert sum(1 for x in circuit.get_items(redzed.Block)) == 6 + 3*4
+    assert sum(1 for x in circuit.get_items(redzed.Block)) == 6 + 3*5
 
 
 def test_reserved_names(circuit):
@@ -119,3 +131,42 @@ def test_get_items_2(circuit):
         circuit.resolve_name("Phantom")
     with pytest.raises(TypeError):
         circuit.resolve_name(0)
+
+
+def test_has_method(circuit):
+    """Test .has_method()"""
+
+    class MethodTest(redzed.Block):
+        def meth(self):
+            pass
+        async def async_meth(self):
+            pass
+        attr = "not callable"
+        # none
+
+    m_blk = MethodTest('mblock')
+
+    assert m_blk.has_method('meth')
+    assert m_blk.has_method('async_meth')
+    assert not m_blk.has_method('attr')
+    assert not m_blk.has_method('no_such_name')
+
+
+def test_bare_block(circuit):
+    """Base class Block() cannot exist."""
+    with pytest.raises(TypeError):
+        redzed.Block('useless')
+
+
+def test_stop_timeout(circuit):
+    """stop_timeout is accepted only with async stop."""
+    class TestBlock1(redzed.Block):
+        pass
+
+    class TestBlock2(redzed.Block):
+        async def rz_astop(self):
+            pass
+
+    TestBlock2('tb0', stop_timeout="1s")
+    with pytest.raises(TypeError, match='not supported'):
+        TestBlock1('tb1', stop_timeout=1)

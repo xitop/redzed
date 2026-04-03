@@ -16,20 +16,6 @@ Circuit inputs
   of seconds or as a :ref:`string with time units<Time durations with units>`.
 
 
-Input data validation
----------------------
-
-Input blocks can validate data using a validator. It is a function specified
-with the *validator* argument. It takes one argument, the incoming data,
-and either accepts it or rejects it. The validator shall return the validated
-value if the validation was successful. The returned data may be modified
-(preprocessed), but it cannot be :const:`UNDEF`. Validation errors
-are signalized by raising an exception or by returning :const:`UNDEF`.
-
-Data validation is optional, but recommended especially for inputs processing
-data from external sources.
-
-
 Pushing data into the circuit
 -----------------------------
 
@@ -46,7 +32,7 @@ The most common data entry block is :class:`!Memory`.
     memory.event('store', value)                  # raise validation errors
     memory.event('store', value, suppress=True)   # suppress validation errors
 
-  :param validator: Optional :ref:`data validator <Input data validation>`.
+  :param validator: Optional :ref:`data validator <Data validation>`.
   :type validator: Callable[[object], object]|None
 
   Events:
@@ -56,9 +42,8 @@ The most common data entry block is :class:`!Memory`.
       Validation errors are handled according to an optional
       event data item ``'suppress'``:
 
-      - if ``suppress=False`` (default) - raise a validation error.
-        Note that each such error generates a log entry about
-        a failed :meth:`!Block.event` call.
+      - if ``'suppress'`` is not given or if ``suppress=False`` - raise
+        :exc:`ValidationError`.
 
       - if ``suppress=True`` - return :const:`False`.
 
@@ -111,7 +96,7 @@ A specialized block is provided for this task:
     When a value is missing, the output is not updated, the *retry_interval*
     overrides the regular *interval* and the counter of failures is incremented.
 
-  :param validator: Optional :ref:`data validator <Input data validation>`.
+  :param validator: Optional :ref:`data validator <Data validation>`.
   :type validator: Callable[[object], object]|None
 
   :param float|str interval:

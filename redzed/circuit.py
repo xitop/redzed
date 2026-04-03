@@ -8,13 +8,12 @@ Project home: https://github.com/xitop/redzed/
 from __future__ import annotations
 
 __all__ = [
-    'CircuitState', 'get_circuit', 'get_output', 'reset_circuit',
+    'get_circuit', 'get_output', 'reset_circuit',
     'run', 'unique_name', 'send_event', 'stop_function']
 
 import asyncio
 from collections.abc import Callable, Coroutine, Iterable, Mapping, MutableMapping, Sequence
 import contextlib
-import enum
 import itertools
 import logging
 import signal
@@ -25,10 +24,10 @@ import typing as t
 from .block import Block
 from .cron_service import Cron
 from .debug import get_debug_level, set_debug_level
+from .defs import CircuitState, UNDEF
 from .initializers import AsyncInitializer, SaveFlags
 from .formula_trigger import Formula, Trigger
 from .signal_shutdown import TerminatingSignal
-from .undef import UNDEF
 from .utils import check_identifier, tasks_are_eager, time_period
 
 _logger = logging.getLogger(__package__)
@@ -40,7 +39,7 @@ _current_circuit: Circuit|None = None
 
 def get_circuit() -> Circuit:
     """Get the current circuit. Create one if it does not exist."""
-    global _current_circuit     # pylint: disable=global-statement
+    global _current_circuit
 
     if _current_circuit is None:
         _current_circuit = Circuit()
@@ -48,17 +47,21 @@ def get_circuit() -> Circuit:
 
 
 def reset_circuit() -> None:
-    global _current_circuit     # pylint: disable=global-statement
-    if _current_circuit is not None:
-        if _current_circuit.get_state() not in [
-                CircuitState.UNDER_CONSTRUCTION, CircuitState.CLOSED]:
-            raise RuntimeError("Cannot reset running circuit")
-        # pylint: disable=protected-access
+    global _current_circuit
+    if _current_circuit is None:
+        return
+    # https://github.com/pylint-dev/pylint/issues/872
+    # pylint: disable=protected-access
+    if _current_circuit.get_state() not in [
+            CircuitState.UNDER_CONSTRUCTION, CircuitState.CLOSED]:
+        _current_circuit.shutdown()
+    else:
         # break some reference cycles
         _current_circuit._blocks.clear()
         _current_circuit._triggers.clear()
         _current_circuit._errors.clear()
-        _current_circuit = None
+        _current_circuit._stops.clear()
+    _current_circuit = None
 
 
 def unique_name(prefix: str = 'auto') -> str:
@@ -89,21 +92,6 @@ _StopFunction: t.TypeAlias = Callable[[], object]
 def stop_function(func: _StopFunction) -> _StopFunction:
     get_circuit().rz_add_stop_function(func)
     return func
-
-
-class CircuitState(enum.IntEnum):
-    """
-    Circuit state.
-
-    The integer value may only increase during the circuit's life-cycle.
-    """
-
-    UNDER_CONSTRUCTION = 0  # being built, the runner is not started yet
-    INIT_CIRCUIT = 1        # the runner initializes itself
-    INIT_BLOCKS = 2         # runner is started, now initializing blocks and triggers
-    RUNNING = 3             # the circuit is running
-    SHUTDOWN = 4            # shutting down
-    CLOSED = 5              # runner has exited
 
 
 class _TerminateTaskGroup(Exception):
@@ -314,7 +302,7 @@ class Circuit:
         if self._state is CircuitState.CLOSED:
             # A circuit may be closed before start (see shutdown),
             # let's use this message instead of the one below.
-            raise RuntimeError("The circuit was closed")
+            raise RuntimeError("The circuit has been closed")
         # allow adding special blocks in the INIT_CIRCUIT state
         if self._state > CircuitState.INIT_CIRCUIT:
             raise RuntimeError("Not allowed after the start")
@@ -385,13 +373,16 @@ class Circuit:
 
         Persistent state is handled elsewhere.
         """
-        for init in blk.rz_initializers:
+        for initializer in blk.rz_initializers:
             if blk.is_initialized():
                 return
-            if isinstance(init, AsyncInitializer):
-                yield init
+            if initializer is None:
+                continue
+            if isinstance(initializer, AsyncInitializer):
+                yield initializer
             else:
-                init.apply_to(blk)
+                initializer.apply_to(blk)
+                blk.rz_unset_initializer(initializer)
         if not blk.is_initialized() and blk.has_method('rz_init_default'):
             blk.log_debug2("Calling the built-in default initializer")
             blk.rz_init_default()
@@ -401,12 +392,13 @@ class Circuit:
         for _ in self._init_block_core(blk):
             pass
 
-    async def init_block_async(self, blk: Block) -> None:
+    async def init_block_all(self, blk: Block) -> None:
         """Initialize a Block including async initializers."""
         for initializer in self._init_block_core(blk):
             task = asyncio.create_task(
                 initializer.async_apply_to(blk),
                 name=f"initializer {type(initializer).__name__} for block '{blk.name}'")
+            blk.rz_unset_initializer(initializer)
             blk.rz_set_inittask(task)
             try:
                 await task
@@ -438,11 +430,17 @@ class Circuit:
                 "Initializing blocks having some async initializers", async_blocks)
             async with asyncio.TaskGroup() as tg:
                 for blk in async_blocks:
-                    tg.create_task(self.init_block_async(blk))
+                    tg.create_task(self.init_block_all(blk))
         # final check
         for blk in blocks:
             if not blk.is_initialized():
-                raise RuntimeError(f"Block '{blk.name}' was not initialized")
+                raise RuntimeError(f"Block '{blk.name}' hasn't been initialized")
+            blk.rz_initializers.clear()     # not needed any longer
+        for frm in self.get_items(Formula):
+            if not frm.is_initialized():
+                raise RuntimeError(
+                    f"Formula '{frm.name}' hasn't been initialized (dependency loop?)")
+
 
     def save_persistent_state(self, blk: Block, now: float|None = None) -> None:
         """
@@ -568,9 +566,7 @@ class Circuit:
                 if not task.done():
                     self.log_warning("Canceled service task %s did not terminate", task)
 
-        stop_blocks = [
-            blk for blk in self.get_items(Block)
-            if blk.has_method('rz_astop', async_method=True)]
+        stop_blocks = [blk for blk in self.get_items(Block) if blk.has_method('rz_astop')]
         if stop_blocks:
             self._log_debug2_blocks("Stopping (async)", stop_blocks)
             async with asyncio.TaskGroup() as tg:
@@ -680,6 +676,9 @@ class Circuit:
         self._set_state(CircuitState.SHUTDOWN)
         # The shutdown monitor will be awakened and exits with an error. The task
         # group will detect it and cancel the runner and its supporting tasks.
+
+    def get_errors(self) -> list[Exception]:
+        return self._errors
 
     async def watchdog(
             self,
@@ -797,7 +796,7 @@ async def run(
         raise RuntimeError("Cannot restart a closed circuit.")
     if state is not CircuitState.UNDER_CONSTRUCTION:
         raise RuntimeError("The circuit is already running.")
-    with TerminatingSignal(signal.SIGTERM) if catch_sigterm else contextlib.nullcontext():
+    with TerminatingSignal(signal.SIGTERM if catch_sigterm else None):
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(circuit.rz_runner(), name="Circuit runner")

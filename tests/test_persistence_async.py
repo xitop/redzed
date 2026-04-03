@@ -2,21 +2,19 @@
 Test the persistent state.
 """
 
+import asyncio
 import json
-import os
 import pickle
+import random
 
 import pytest
 
-import redzed, redzed.utils
-import tempfile
+import redzed
+import redzed.utils
 
-from .utils import add_ts, runtest, strip_ts
+from .utils import add_ts, Exc, Grp, runtest, strip_ts
 
 pytestmark = pytest.mark.usefixtures("task_factories")
-
-Exc = pytest.RaisesExc
-Grp = pytest.RaisesGroup
 
 
 async def test_remove_unused(circuit):
@@ -93,37 +91,48 @@ async def test_close_2(circuit):
 
 
 @pytest.mark.parametrize('fmt', ['json', 'pickle'])
-async def test_pdict(circuit, fmt):
+async def test_pdict(circuit, fmt, tmp_path):
     """Test the PersistentDict."""
 
-    num = os.getpid()
+    num = random.randint(0, 999_999)
     module = (json if fmt == 'json' else pickle)
-    try:
-        filename = None
-        fd, filename = tempfile.mkstemp()
-        os.close(fd)
-        storage = redzed.utils.PersistentDict(filename, format=fmt)
-        circuit.set_persistent_storage(storage, close_callback=storage.flush)
-        mem1 = redzed.Memory('mem', initial=[redzed.PersistentState(), num])
-        await runtest(sleep=0)
+    pdict_path = tmp_path / 'test.pdict'
+    storage = redzed.utils.PersistentDict(pdict_path, format=fmt, sync_time=0.015)
+    circuit.set_persistent_storage(storage, close_callback=storage.flush)
+    mem = redzed.Memory('mem', initial=[redzed.PersistentState(), num])
 
-        with open(filename, "rb") as df:
+    def get_size():
+        return pdict_path.stat().st_size
+
+    def get_saved_mem():
+        with open(pdict_path, "rb") as df:
             raw = df.read()
         data = module.loads(raw)
-        assert data[mem1.rz_key][0] == num
+        return data[mem.rz_key][0]
 
-        redzed.reset_circuit()
-        circuit = redzed.get_circuit()
-        circuit.set_persistent_storage(storage, close_callback=storage.flush)
-        mem2 = redzed.Memory('mem', initial=[redzed.PersistentState()])
-        async def tester():
-            mem2.event('store', mem2.get() + 1000)
-        await runtest(tester())
+    await runtest(sleep=0)
+    assert get_saved_mem() == num
 
-        with open(filename, "rb") as df:
-            raw = df.read()
-        data = module.loads(raw)
-        assert data[mem2.rz_key][0] == num + 1000
-    finally:
-        if filename is not None:
-            os.unlink(filename)
+    redzed.reset_circuit()
+    del mem
+    circuit = redzed.get_circuit()
+    circuit.set_persistent_storage(storage, close_callback=storage.flush)
+    mem = redzed.Memory('mem', initial=[redzed.PersistentState()])
+
+    async def tester():
+        m = mem.get()
+        size1 = get_size()
+        mem.event('store', [m+1, m+2, m+3])
+        assert get_size() == size1
+        await asyncio.sleep(0.02)   # sync every 15 ms
+        assert (size2 := get_size()) > size1
+        mem.event('store', m+4)
+        assert get_size() == size2
+        storage.flush()             # explicit sync
+        assert get_size() < size2
+        mem.event('store', m+5)
+        # sync on close
+    await runtest(tester())
+
+    assert get_saved_mem() == num + 5
+    pdict_path.unlink()

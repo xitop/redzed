@@ -48,8 +48,9 @@ Running a circuit
 
   In case of a failure, :func:`!run` raises an :exc:`!ExceptionGroup` containing a flat list
   of all errors caught in the circuit runner, in its service tasks and
-  and in supporting tasks. Their tracebacks correspond
-  to the place where the exceptions were caught and reported from.
+  and in supporting tasks. Their tracebacks correspond to the place
+  where the exceptions were caught and reported from. The error list
+  can be also retrieved with :meth:`Circuit.get_errors`.
 
   .. important::
 
@@ -71,7 +72,7 @@ See also :meth:`Circuit.get_state` and the corresponding synchronization tool :m
 
 1. Start supporting coroutines as individual tasks in a :abbr:`task group (asyncio.TaskGroup)`.
 2. Initialize and start all components. Asynchronous block initialization routines
-   (if any) are invoked concurrently.
+   of distinct blocks are invoked concurrently.
 3. Keep the circuit running until :meth:`Circuit.shutdown`, :meth:`Circuit.abort`
    or an error. If an error occurs in previous steps, this state won't be reached
    and the runner goes directly to the shutdown state below.

@@ -10,12 +10,9 @@ import pytest
 
 import redzed
 
-from .utils import runtest
+from .utils import Exc, Grp, runtest
 
 pytestmark = pytest.mark.usefixtures("task_factories")
-
-Exc = pytest.RaisesExc
-Grp = pytest.RaisesGroup
 
 
 async def _init_by_event(circuit, waittime):
@@ -30,7 +27,7 @@ async def _init_by_event(circuit, waittime):
 
 async def test_init_by_event_1(circuit):
     """Test initialization by an event 1/2."""
-    with Grp(Exc(RuntimeError, match="not initialized")):
+    with Grp(Exc(RuntimeError, match="hasn't been initialized")):
         await _init_by_event(circuit, 0.15)     # > 0.1 failure
 
 
@@ -76,9 +73,33 @@ async def test_no_recursive_events2(circuit):
         def _event_store3(self, edata):
             self.event('store2', edata['evalue'] + 3)
 
-    mem = E321("mem321")
-    mem.event('store3', 5)          # 3->2->1->store
-    assert mem.get() == 5+3+2+1
+    mem = E321("mem321", initial=0)
 
-    with Exc(RuntimeError, match="event of the same type"):
+    async def tester():
+        mem.event('store3', 5)
+        assert mem.get() == 5+3+2+1
         mem.event('store3', 105)    # 3->2->1->3 !
+
+    with Grp(Exc(RuntimeError, match="event of the same type")):
+        await runtest(tester())
+
+
+async def test_no_get_state(circuit):
+    """No _get_state_ without rz_export_state."""
+
+    class TestBlock1(redzed.Block):
+        pass
+
+    class TestBlock2(redzed.Block):
+        def rz_export_state(self):
+            return "STATE!"
+
+    tb1 = TestBlock1('test1')
+    tb2 = TestBlock2('test2')
+
+    async def tester():
+        assert tb2.event('_get_state') == "STATE!"
+        with pytest.raises(redzed.UnknownEvent):
+            tb1.event('_get_state')
+
+    await runtest(tester())

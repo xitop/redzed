@@ -47,6 +47,9 @@ class TimeDate(redzed.Block):
 
     def _reconfig(self, config: _ConfigType) -> None:
         """Reconfigure the block."""
+        if not isinstance(config, Mapping):
+            raise TypeError(
+                f"{self}: Configuration data must be a dict (mapping), but got: {config!r}")
         if extra := config.keys() - {'times', 'dates', 'weekdays'}:
             raise ValueError(f"{self}: Unexpected key '{next(iter(extra))}' in configuration")
         times = config.get('times', None)
@@ -71,10 +74,6 @@ class TimeDate(redzed.Block):
         self.rz_cron_event(self._cron.dtnow())
 
     def rz_init(self, value: _ConfigType, /) -> None:
-        if not isinstance(value, Mapping):
-            raise TypeError(
-                "Initialization value must be a dict (mapping), "
-                + f"but got {type(value).__name__}")
         self._reconfig(value)
 
     def rz_init_default(self) -> None:

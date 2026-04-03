@@ -7,9 +7,16 @@ Home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
+__all__ = ['ValidationError']
+
 from collections.abc import Callable
 
 import redzed
+
+
+class ValidationError(Exception):
+    """Validation failed."""
+
 
 class _Validate:
     """
@@ -38,13 +45,15 @@ class _Validate:
         try:
             validated = self._validator(value)
             if validated is redzed.UNDEF:
-                raise ValueError("Validation error")
-        except Exception as err:
+                raise ValidationError("Validation failed")
+        except (ValidationError, TypeError, ValueError, ArithmeticError) as err:
             self.log_debug1(
                 "Validator rejected value %r with %s: %s", value, type(err).__name__, err)
             err.add_note(f"Validated value was: {value!r}")
-            raise
+            if isinstance(err, ValidationError):
+                raise
+            raise ValidationError("Validation failed") from err
 
         if validated != value:
-            self.log_debug2("Validator has rewritten %r -> %r", value, validated)
+            self.log_debug2("Validator has rewritten: %r -> %r", value, validated)
         return validated

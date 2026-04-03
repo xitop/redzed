@@ -7,7 +7,7 @@ Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
-__all__ = ['Block', 'CircuitShutDown', 'EventData', 'UnknownEvent']
+__all__ = ['Block', 'CircuitNotReady', 'CircuitShutDown', 'EventData', 'UnknownEvent']
 
 import asyncio
 from collections.abc import Callable
@@ -17,9 +17,10 @@ import typing as t
 from .base_block import BlockOrFormula
 
 from .debug import get_debug_level
+from .defs import CircuitState, UNDEF
 from . import initializers
-from .undef import UNDEF
 from .utils import check_identifier, is_multiple, time_period
+from .validator import ValidationError
 
 _logger = logging.getLogger(__package__)
 _DEFAULT_STOP_TIMEOUT = 10.0
@@ -32,11 +33,13 @@ class UnknownEvent(Exception):
     """Event type not supported."""
 
 
-class CircuitShutDown(RuntimeError):
-    """Cannot perform an action after shutdown."""
+class CircuitNotReady(RuntimeError):
+    """Cannot process an event."""
+
+CircuitShutDown = CircuitNotReady       # old name
 
 
-_INIT_TYPES = (initializers.SyncInitializer, initializers.AsyncInitializer)
+_INIT_TYPES: t.TypeAlias = initializers.SyncInitializer | initializers.AsyncInitializer
 
 
 class Block(BlockOrFormula):
@@ -94,6 +97,7 @@ class Block(BlockOrFormula):
                 setattr(self, key, kwargs.pop(key))
         super().__init__(*args, **kwargs)
 
+        self.rz_initializers: list[_INIT_TYPES|None]
         if initial is UNDEF:
             self.rz_initializers = []
         else:
@@ -164,6 +168,13 @@ class Block(BlockOrFormula):
         """
         self._init_task = task
 
+    def rz_unset_initializer(self, init: _INIT_TYPES) -> None:
+        """
+        Remove an applied initializer *init* from the list of configured
+        initializers in order to prevent its repeated usage in a block.
+        """
+        self.rz_initializers[self.rz_initializers.index(init)] = None
+
     def _set_output(self, output: object) -> bool:
         """
         Set output, recalculate dependent formulas, run affected triggers.
@@ -222,8 +233,8 @@ class Block(BlockOrFormula):
         # pylint: disable-next=no-member
         return self.rz_export_state()         # type: ignore[attr-defined]
 
-    def rz_is_shut_down(self) -> bool:
-        return self.circuit.is_shut_down()
+    def is_ready(self) -> bool:
+        return CircuitState.INIT_BLOCKS <= self.circuit.get_state() < CircuitState.SHUTDOWN
 
     def event(self, etype: str, /, evalue: object = UNDEF, **edata: object) -> object:
         """
@@ -233,8 +244,12 @@ class Block(BlockOrFormula):
         Otherwise call the _default_event_handler() as the last resort.
         """
         check_identifier(etype, "Event type")
-        if (not_monitoring := not etype.startswith('_get_')) and self.rz_is_shut_down():
-            raise CircuitShutDown("The circuit was shut down")
+        if (not_monitoring := not etype.startswith('_get_')) and not self.is_ready():
+            if self.circuit.is_shut_down():
+                msg = "The circuit has been shut down"
+            else:
+                msg = "The circuit hasn't been initialized yet"
+            raise CircuitNotReady(msg)
 
         if evalue is not UNDEF:
             edata['evalue'] = evalue
@@ -270,14 +285,15 @@ class Block(BlockOrFormula):
                     retval = handler(self, edata)
                 else:
                     retval = self._default_event_handler(etype, edata)
-            except UnknownEvent:
-                self.log_debug1("Unknown event error raised")
+            except (UnknownEvent, ValidationError) as err:
+                self.log_debug1("Event '%s' raised %s", etype, type(err).__name__)
                 raise
             except Exception as err:
-                err.add_note(f"Error occurred in {self} during handling of event '{etype}'; "
+                err.add_note(f"{self}: Error occurred during handling of event '{etype}'; "
                     + f"event data was: {edata if edata else '<EMPTY>'}")
                 if isinstance(err, KeyError) and err.args[0] == 'evalue':
                     err.add_note("A required event value is almost certainly missing")
+                self.log_error("Event '%s' raised %s", etype, type(err).__name__)
                 raise
             if (self.rz_save_flags & initializers.SaveFlags.EVENT
                     and not_monitoring and self.is_initialized()):

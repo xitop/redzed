@@ -29,6 +29,7 @@ author = 'Vlado Potisk'
 # ones.
 extensions = [
     'sphinx.ext.autosectionlabel',
+    'sphinx_design'
 ]
 
 # required by readthedocs

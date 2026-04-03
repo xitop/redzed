@@ -18,7 +18,7 @@ from . import base_block
 from . import block
 from . import circuit
 from .debug import get_debug_level
-from .undef import UNDEF
+from .defs import UNDEF
 from .utils import func_call_string
 
 _logger = logging.getLogger(__package__)
@@ -89,6 +89,7 @@ class _ExtFunction:
             # @mypy: union-attr: after pre-init '_inputs' does not contain strings
             blk.get(with_previous=self._with_prev)  # type: ignore[union-attr]
             for blk in self._inputs]
+        owner = self._owner
         current = [v[0] for v in values] if self._with_prev else values # type: ignore[index]
         if UNDEF in current:
             assert self._owner.circuit.get_state() < circuit.CircuitState.RUNNING
@@ -96,21 +97,25 @@ class _ExtFunction:
                 undefs = (
                     param for param, value in zip(self._parameters, current) if value is UNDEF)
                 _logger.debug(
-                    "%s: NOT calling the function; UNDEF: %s", self._owner, ', '.join(undefs))
+                    "%s: NOT calling the function; got <UNDEF> from: %s",
+                    owner, ', '.join(undefs))
             return UNDEF
         kwargs = dict(zip(self._parameters, values, strict=True))
         if get_debug_level() >= 1:
             _logger.debug(
-                "%s: Calling %s", self._owner, func_call_string(self._func, (), kwargs))
+                "%s: Calling %s", owner, func_call_string(self._func, (), kwargs))
         try:
-            return self._func(**kwargs)
+            if (retval := self._func(**kwargs)) is UNDEF and isinstance(owner, Formula):
+                # return value for triggers is ignored
+                raise ValueError("Formula's function returned <UNDEF>")
         except Exception as err:
-            err.add_note(f"Failed function call originated from {self._owner}")
-            self._owner.circuit.abort(err)
+            err.add_note(f"Failed function call originated from {owner}")
+            owner.circuit.abort(err)
             raise
 
+        return retval
 
-# Triggers do not have a name nor an output.
+
 @t.final
 class Trigger:
     """
@@ -187,7 +192,6 @@ class Formula(base_block.BlockOrFormula):
                 else inspect.cleandoc(func.__doc__).partition('\n')[0]
         super().__init__(name, comment=comment, **kwargs)
         self._ext_func = _ExtFunction(func, self)
-        self._evaluate_active = False
 
     def rz_pre_init(self) -> None:
         for inp in self._ext_func.resolve_names():
@@ -202,16 +206,12 @@ class Formula(base_block.BlockOrFormula):
 
         Return a set of affected triggers.
         """
-        if self._evaluate_active:
-            raise RuntimeError(f"{self}: detected a dependency loop")
         result = self._ext_func.run_function()
         if result is UNDEF or not self._set_output(result):
             return set()
         triggers = self._dependent_triggers.copy()
-        self._evaluate_active = True
         for frm in self._dependent_formulas:
             triggers |= frm.evaluate()
-        self._evaluate_active = False
         return triggers
 
 def formula(func: _FUNC) -> _FUNC:

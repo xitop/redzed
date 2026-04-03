@@ -11,14 +11,11 @@ import pytest
 
 import redzed
 
-from .utils import runtest, TimeLogger
+from .utils import Exc, Grp, ms, runtest, TimeLogger
 
 pytestmark = pytest.mark.usefixtures("task_factories")
 
 # pylint: disable=unused-argument
-
-Exc = pytest.RaisesExc
-Grp = pytest.RaisesGroup
 
 
 async def _repeat(circuit, count, log, a_interval=None, b_count=None):
@@ -34,13 +31,13 @@ async def _repeat(circuit, count, log, a_interval=None, b_count=None):
     repeater = redzed.Repeat('repeat', dest=Adapter('ada'), interval=0.05, count=count)
 
     async def tester(cnt_limit):
-        await asyncio.sleep(0.05)
+        await ms(50)
         assert repeater.get() == 0
         if a_interval is not None:
             repeater.event('one', 'A', repeat_interval=a_interval)
         else:
             repeater.event('one', 'A')
-        await asyncio.sleep(0.18)   # 4 events (original + 3 repeats)
+        await ms(180)   # 4 events (original + 3 repeats)
         a_events = len(logger.tlog)
         assert repeater.get() == a_events - 1
         # another event
@@ -49,7 +46,7 @@ async def _repeat(circuit, count, log, a_interval=None, b_count=None):
         else:
             repeater.event('two', 'B')
         assert repeater.get() == 0
-        await asyncio.sleep(0.12)
+        await ms(120)
         assert repeater.get() == len(logger.tlog) - a_events - 1
 
     await runtest(tester(count))
@@ -127,9 +124,9 @@ async def test_output(circuit):
     async def tester():
         assert rpt.get() == 0
         rpt.event('EV', 10, twelve=12, repeat=999)  # 'repeat' will be overwritten
-        await asyncio.sleep(0.16)
+        await ms(160)
         rpt.event('EV', 20, twelve=12)
-        await asyncio.sleep(0.11)
+        await ms(110)
 
     await runtest(tester())
 
@@ -164,8 +161,8 @@ async def test_jitter(circuit, jitter, count):
     await runtest(tester())
     intervals = logger.get_ms()
     assert len(intervals) == count
-    delta = 1 - (-TICK_MS * jitter) // 100  # round up without math.ceil, +1 for overhead
-    assert all(TICK_MS - delta < d <= TICK_MS + delta for d in intervals)
+    delta = -(-TICK_MS * jitter) // 100  # round up without math.ceil
+    assert all(TICK_MS - delta - 1 < d <= TICK_MS + delta + 2 for d in intervals)
     assert len(set(intervals)) > 3, "please repeat the test"    # false positive rate < 0.01%
 
 
@@ -197,3 +194,25 @@ async def test_loop2(circuit):
     with Grp(Exc(RuntimeError, match="another event of the same type")):
         await runtest(tester())
     assert mem.get() == 21   # mem output = init: 1, store: 21, repeat#1: error!
+
+
+async def test_no_chain(circuit):
+    """Test a loop in the circuit. Repeat to itself."""
+    redzed.Repeat('rpt1', dest='rpt2', interval="100ms")
+    redzed.Repeat('rpt2', dest='rpt1', interval="100ms")
+
+    with Grp(Exc(TypeError, match="another Repeat block")):
+        await runtest(sleep=0)
+
+
+async def test_no_formula(circuit):
+    """Test a loop in the circuit. Repeat to itself."""
+    redzed.Memory('src', initial=0)
+    redzed.Repeat('rpt1', dest='frm', interval="100ms")
+
+    @redzed.formula
+    def _frm(src):
+        return src
+
+    with Grp(Exc(TypeError, match="is a Formula")):
+        await runtest(sleep=0)

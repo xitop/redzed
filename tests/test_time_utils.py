@@ -6,7 +6,8 @@ import datetime as dt
 
 import pytest
 
-from redzed import utils
+import redzed
+utils = redzed.utils
 
 
 def test_tconst():
@@ -268,3 +269,23 @@ def test_interval():
     config3 = config1 + config2
     str3i = str1i.replace("--", "::") + "|" + str2i.replace(';', '|').replace("/", "::")
     assert utils.parse_interval(str3i, delim="|", sep="::", parser=_iso_to_int7) == config3
+
+
+def test_cron_wait_time():
+    """Test an utility from the cron service."""
+
+    def diff(t1, t2):
+        # pylint: disable=protected-access
+        return redzed.cron_service._wait_time(dt.time(*t1), dt.time(*t2))
+    for h in range(24):
+        assert diff([h, 23, 41], [h, 23, 41]) == 0
+        assert diff([h, 10], [h, 5]) == -300
+        assert diff([h, 20], [h, 31, 30]) == 690
+        assert diff([h, 45], [(h+1) % 24, 50]) == 3900
+        assert diff([h, 50], [(h+1) % 24, 50, 1]) == 3601
+        assert diff([(h+1) % 24, 17], [h, 22]) == -3300
+        assert diff([(h+2) % 24, 17], [h, 22]) == -6900
+        assert diff([(h+3) % 24, 17], [h, 22]) == 75900
+        assert diff([(h+3) % 24, 12, 59], [h, 43]) == -2.5*3600+1
+        assert diff([(h+3) % 24, 13, 1], [h, 43]) == 21.5*3600-1
+        assert diff([h, 50], [(h+2) % 24, 10]) == 4800

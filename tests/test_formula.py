@@ -2,7 +2,11 @@
 Test Formulas.
 """
 
+import pytest
+
 import redzed
+
+from .utils import mini_init
 
 async def test_decorartor(circuit):
     """Test @formula"""
@@ -32,3 +36,30 @@ async def test_decorartor(circuit):
     assert f2 in formulas
     assert f2.name == 'frml'
     assert f2.comment == ''
+
+
+def test_loop(circuit):
+    """Test dependency loop."""
+    @redzed.formula
+    def _f1(f2):
+        return f2 * 2
+
+    @redzed.formula
+    def _f2(f1):
+        return f1 / 2
+
+    with pytest.raises(RuntimeError, match="not initialized"):
+        mini_init(circuit)
+
+
+def test_undef(circuit):
+    """Test UNDEF return value during initialization."""
+    redzed.Memory("x", initial=0)
+
+    @redzed.formula
+    # pylint: disable=unused-argument
+    def _f(x):
+        return redzed.UNDEF
+
+    with pytest.raises(RuntimeError, match="not initialized"):
+        mini_init(circuit)

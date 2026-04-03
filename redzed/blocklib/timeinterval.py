@@ -75,7 +75,7 @@ class _Interval(t.Generic[_DateTimeType]):
         """Parse: [begin, end]"""
         if not isinstance(rng, Sequence) or isinstance(rng, str):
             raise TypeError(
-                f"Invalid range type. Expected was a pair [begin, and], got {rng!r}")
+                f"Invalid range type. Expected was a pair [begin, end], got {rng!r}")
         if (length := len(rng)) != 2:
             raise ValueError(f"A range must have 2 endpoints, got range with {length}: {rng!r}")
         return [self.convert(rng[0]), self.convert(rng[1])]

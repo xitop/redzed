@@ -37,6 +37,7 @@ Table of contents
   :caption: Included logic blocks
   :maxdepth: 2
 
+  validators
   blocks_in
   blocks_out
   blocks_FSM

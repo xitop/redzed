@@ -17,7 +17,7 @@ import typing as t
 import redzed
 from redzed.utils import is_multiple, time_period
 from .fsm import FSM
-from .validator import _Validate
+from ..validator import _Validate, ValidationError
 
 
 class Memory(_Validate, redzed.Block):
@@ -34,7 +34,7 @@ class Memory(_Validate, redzed.Block):
         evalue = edata['evalue']
         try:
             validated = self._validate(evalue)
-        except Exception:
+        except ValidationError:
             if edata.get('suppress', False):
                 return False
             raise
@@ -59,6 +59,27 @@ class MemoryExp(_Validate, FSM):
     """
 
     STATES = ['expired', ['valid', None, 'expired']]
+    EVENTS = [
+        ('expire', ..., 'expired'),
+        ('store', ..., 'store_handler')
+        ]
+
+    def cond_store(self, edata):
+        evalue = edata['evalue']
+        try:
+            validated = self._validate(evalue)
+        except ValidationError:
+            if edata.get('suppress', False):
+                return False
+            raise
+        self.sdata['memory'] = validated
+        return True
+
+    def select_store_handler(self):
+        return 'expired' if self.sdata['memory'] == self._expired else 'valid'
+
+    def enter_expired(self) -> None:
+        self.sdata.pop('memory', None)
 
     def __init__(
             self, *args,
@@ -68,43 +89,20 @@ class MemoryExp(_Validate, FSM):
         super().__init__(*args, t_valid=duration, **kwargs)
         try:
             self._expired = self._validate(expired)
-        except Exception as err:
+        except ValidationError as err:
             err.add_note(f"{self}: The validator rejected the 'expired' argument {expired!r}")
             raise
-
-    def _store(self, validated: object) -> None:
-        if validated == self._expired:
-            self._goto('expired')
-        else:
-            self.sdata['memory'] = validated
-            self._goto('valid')
-
-    def _event_store(self, edata: redzed.EventData) -> bool:
-        evalue = edata['evalue']
-        validated = self._validate(evalue)
-        try:
-            validated = self._validate(evalue)
-        except Exception:
-            if edata.get('suppress', False):
-                return False
-            raise
-        self._store(validated)
-        return True
 
     def rz_init(self, init_value: object, /) -> None:
         validated = self._validate(init_value)
         if validated == self._expired:
             super().rz_init('expired')
         else:
-            self.sdata['memory'] = validated
-            super().rz_init('valid')
-
-    def enter_expired(self) -> None:
-        self.sdata.pop('memory', None)
+            super().rz_init(('valid', {'memory': validated}))
 
     def _set_output(self, output: object) -> bool:
         return super()._set_output(
-            self.sdata['memory'] if self.state == 'valid' else self._expired)
+            self.sdata['memory'] if self._state == 'valid' else self._expired)
 
 
 class DataPoll(redzed.Block):

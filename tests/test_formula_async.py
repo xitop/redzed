@@ -4,11 +4,13 @@ Test Formulas.
 
 # pylint: disable=unused-argument
 
+import asyncio
+
 import pytest
 
 import redzed
 
-from .utils import runtest
+from .utils import Exc, Grp, runtest
 
 pytestmark = pytest.mark.usefixtures("task_factories")
 
@@ -147,3 +149,22 @@ async def test_chain(circuit):
 
     await runtest(tester())
     assert log == [44_110, 44_118, 44_111, 44_113]
+
+
+async def test_undef(circuit):
+    """Test UNDEF return value."""
+    redzed.Memory("mem", initial=False)
+
+    @redzed.formula
+    def _formula(mem):
+        return redzed.UNDEF if mem else "OK"
+
+    async def tester():
+        with Exc(ValueError, match="returned <UNDEF>"):
+            # catching the exception won't help, runner will be aborted
+            redzed.send_event('mem', 'store', True)
+        await asyncio.sleep(1)
+        assert False, "not reached"
+
+    with Grp(Exc(ValueError, match="returned <UNDEF>")):
+        await runtest(tester())

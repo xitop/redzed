@@ -23,20 +23,17 @@ Initialization by an external event
 -----------------------------------
 
 This is a special case of initialization happening by coincidence.
+There is a brief time window in the :attr:`CircuitState.INIT_BLOCKS` state
+when it could happen.
+
 When an event arrives to an uninitialized block, the block will first try
-to initialize itself and then to handle the event. This event often
+to initialize itself and then to handle the event. The event often
 fully initializes the block. The exact procedure is:
 
 1. call initializers specified by the *initial* argument
-   *except* the async ones and *except* those already called
+   *except* the async ones and *except* those already tried
 2. if still not initialized, call the built-in initializer
 3. handle the event - initialized or not
-
-Circuit ``Triggers`` are not activated yet during the initialization,
-therefore an initialization event can come only from an external source
-and if application's interface forwards it. The interface may be programmed not to
-forward events to uninitialized blocks, but in general you don't want
-to lose events.
 
 
 Initializers
@@ -82,22 +79,14 @@ A block can have zero, one or more initializers.
       initial=[PersistentState(), 2]             # shortcut applies to integer 2
       initial=[PersistentState(), InitValue(2)]  # explicit equivalent
 
-.. warning::
-  Initializers are not reusable::
+Initializers are reusable::
 
+    # caution: in older beta releases this was not allowed
     import redzed as rz
 
-    # correct
-    rz.Memory("ok1", initial=rz.InitValue(0))
-    rz.Memory("ok2", initial=rz.InitValue(0))
-    # also correct
-    rz.Memory("ok3", initial=0)
-    rz.Memory("ok4", initial=0)
-
-    # WRONG!
     init0 = rz.InitValue(0)
-    rz.Memory("not_ok1", initial=init0)
-    rz.Memory("not_ok2", initial=init0)
+    rz.Memory("ok1", initial=init0)
+    rz.Memory("ok2", initial=init0)
 
 
 Sync initializers
@@ -166,17 +155,19 @@ Sync initializers
         Save state periodically by a background service
         configured with :meth:`Circuit.set_persistent_storage`.
 
-    **Default options:**
+    **Default settings:**
 
-    Without explicitly given *options*, following settings
-    will be applied by default:
+    Without explicitly given *save_flags*, following settings
+    will be applied:
 
-    - blocks :class:`Memory`, :class:`Counter`, :class:`DataPoll`:
-        :attr:`SF_OUTPUT` will be set
-    - other blocks:
-        :attr:`SF_EVENT` will be set
-    - If *expiration* is set:
-        :attr:`SF_INTERVAL` will be added to keep timestamps updated
+    - Depending on :attr:`Block.RZ_STATE_IS_OUTPUT`:
+
+      - blocks :class:`Memory`, :class:`Counter`, :class:`DataPoll` and similar
+        will use :attr:`SF_OUTPUT`
+      - other blocks will use :attr:`SF_EVENT`
+
+    - If *expiration* is set, :attr:`SF_INTERVAL` will be added to keep
+      timestamps updated
 
 
 Async initializers
@@ -189,21 +180,21 @@ there is an example at the bottom of this page.
 
 .. class:: InitTask(aw_func: Callable[..., Awaitable], *args: object, timeout: float|str = 10.0)
 
-  Await an async function with arguments *args* in an async task with *timeout*.
+  Create an awaitable by calling *aw_func* with arguments *args*
+  and await it in an async task with *timeout*.
   Initialize with the return value unless it is :const:`UNDEF`. When the returned
   value is :const:`UNDEF`, the initialization continues with the next initializer.
-
-  In exact terms is *aw_func* a callable returning an awaitable.
 
   Argument *timeout* is a number of seconds or a
   :ref:`string with time units <Time durations with units>`. Default timeout is 10 seconds.
 
   .. important::
 
-     If the block gets a successful initialization (by an external event)
-     while :class:`!InitTask` is waiting for the task running *coro_func*,
-     :class:`!InitTask` will immediately cancel its operation and won't
-     overwrite the existing initialization.
+    If the block gets a successful initialization (by an external event)
+    while :class:`!InitTask` is waiting for the task running *aw_func*,
+    :class:`!InitTask` will immediately cancel its operation and won't
+    overwrite the existing initialization. In other words, the first
+    received value wins.
 
 .. class:: InitWait(timeout: float|str)
 

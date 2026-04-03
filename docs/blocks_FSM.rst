@@ -116,7 +116,7 @@ Dynamically selected states
 +++++++++++++++++++++++++++
 
 A dynamically selected state ("dynamic state" for short) is a pseudo-state that
-acts as a placeholder for a computed next state. A dynamic states is identified
+acts as a placeholder for a computed next state. A dynamic state is identified
 by its name (string) just like any other state, but it is not a valid FSM state.
 It cannot become a current state and cannot have enter or exit actions.
 
@@ -136,7 +136,7 @@ The transition table is defined by :attr:`STATES` and :attr:`EVENTS`:
 
   Class attribute.
 
-  A :abbr:`sequence (a list or tuple)` of all valid states, both regular and timed.
+  A non-empty :abbr:`sequence (a list or tuple)` of all valid states, both regular and timed.
   Do not list dynamic states here. The very first item in this list is the default
   initial state.
 
@@ -224,6 +224,29 @@ FSM blocks support the ':ref:`_get_config`' monitoring event. It returns the int
 control tables.
 
 
+Event error handling
+--------------------
+
+The important point for handling of exceptions during state transitions
+is when exactly they were raised.
+
+**Non-fatal exceptions**:
+  If the state transition was initiated by an explicit :meth:`Block.event`
+  call and the exception occurred during preparations, the :meth:`!event`
+  call is terminated by that exception, the current FSM state remains unchanged
+  and the FSM continues its work.
+
+  Examples: :exc:`UnknownEvent`; transition to a timed state
+  with an unknown duration; exception in :meth:`FSM.cond_EVENT`.
+
+**Fatal exceptions**:
+  If the exception has interrupted a state transition already in progress, the
+  error is deemed critical and causes an immediate :meth:`Circuit.abort`.
+
+  Examples: exceptions in :ref:`entry and exit actions <State entry and exit actions>`;
+  errors in transitions not initiated explicitly, e.g. by expired timed states.
+
+
 Duration of timed state
 -----------------------
 
@@ -235,10 +258,11 @@ priority to the lowest:
 1. the ``'duration'`` item in the event data of the event that
    caused the transition to a timed state
 2. result of :meth:`FSM.duration_TSTATE` call
-3. duration set in the instance with a *t_TSTATE* :ref:`parameter <FSM parameters>`
+3. duration set in the block with a *t_TSTATE* :ref:`parameter <FSM parameters>`
 4. default set in the :attr:`FSM.STATES` table
 
-If none of these sources produces a valid duration, an exception is raised.
+If none of these sources produces a valid duration, the timed state
+is not entered and an exception is raised instead.
 
 When the timer expires, the *next_state* (as defined in the :attr:`FSM.STATES` table)
 is entered. If the timed state is exited before the timer expiration, the timer is cancelled.
@@ -269,6 +293,9 @@ Additional internal state data
   FSM state and the timer state. This additional data should be stored here
   as key=value pairs. All keys must be strings.
 
+  :attr:`sdata` is created empty. If need be, its contents can be set
+  during initialization. See the *initial* option in :ref:`FSM parameters`.
+
   Because the :attr:`FSM.sdata` dict is by definition a part of the internal state,
   it is automatically saved and restored when the :ref:`persistent state <Persistent state>`
   is turned on. Note that the underlying persistent data storage must be able to serialize
@@ -278,12 +305,13 @@ Additional internal state data
 Current state and output
 ------------------------
 
-.. data:: FSM.state
+.. method:: FSM.fsm_state() -> str|redzed.UndefType
 
-  The current FSM state. A read-only property.
+  Get the current FSM state. Uninitialized FSMs return :const:`UNDEF`.
 
-The output is by default equal to the current state. If a different output is required,
-override the :meth:`Block._set_output` method. See the :ref:`examples <FSM examples>`.
+The output (:meth:`Block.get()`) is by default equal to the current state.
+If a different output is required, override the :meth:`Block._set_output` method.
+See the :ref:`examples <FSM examples>`.
 
 
 Hooks
@@ -304,13 +332,13 @@ Supported are:
   These hooks are named ``select_DSTATE`` where ``DSTATE``
   is a dynamic pseudo-state name.
 
-Incorrectly formed names (e.g. ``enter_foo``, where ``foo`` is not a state)
-will be rejected with an error.
-
-FSM hooks can exist as methods having the appropriate hook name defined within the class.
-With exception of the ``duration_TSTATE`` hooks, they can be defined also per instance
+FSM hooks are methods defined within the class and having the appropriate hook name.
+Additionally, ``enter_STATE`` and ``exit_STATE`` can be defined also per instance
 as external functions. Use the hook name as a keyword argument and pass a function
 or a sequence of functions.
+
+Incorrectly formed names (e.g. ``enter_foo``, where ``foo`` is not a state)
+will be rejected with an error.
 
 .. important::
 
@@ -323,8 +351,8 @@ Call arguments
 
 Hooks are called either with no arguments or with one argument depending on
 how they were defined. The `self` parameter in methods is not counted.
-The parameter must be positional. i.e. not keyword-only,
-nor :abbr:`variadic (*args or **kwargs)`.
+The parameter must be positional (not keyword-only,
+not :abbr:`variadic (*args or **kwargs)`).
 
 Obviously, hooks not taking any arguments are called without arguments.
 Hooks taking one argument are called with a *read-only* proxy of the
@@ -372,56 +400,50 @@ The return values are ignored.
 Conditional events
 ++++++++++++++++++
 
-Optional functions deciding if an event will be accepted or rejected.
+If a hook named ``cond_EVENT`` exists, it will be called each time
+an event named ``EVENT`` arrives. The hook decides if the event will
+be accepted.
 
-Hooks named ``cond_EVENT`` are called when ``EVENT`` arrives. It will be accepted
-only if *all* ``cond_EVENT`` return boolean true value.
+.. method:: FSM.cond_EVENT() -> bool
+.. method:: FSM.cond_EVENT(edata) -> bool
+  :noindex:
 
-These functions may be defined as:
-
-- a method:
-
-  .. method:: FSM.cond_EVENT() -> bool
-  .. method:: FSM.cond_EVENT(edata) -> bool
-    :noindex:
-
-    Check a condition for event ``EVENT`` acceptance.
-
-- external functions defined in an instance with a keyword argument
-  (e.g. ``cond_EVENT=my_func``). The argument is a function or a sequence
-  of functions.
-
-If there exist multiple functions, the evaluation is short-circuited.
-When one function returns boolean false, the event is rejected and
-no other functions will be called. These functions should have no side effects.
+  Optional method specifying a condition for event ``EVENT`` acceptance.
+  The event will be accepted if the method returns boolean true
+  value and rejected otherwise. The code may even raise an exception
+  (e.g. a :exc:`ValidationError`), if it is appropriate for the application.
+  The exception will be propagated according to
+  the :ref:`rules <Event error handling>`.
 
 
 Timed state duration
 ++++++++++++++++++++
 
-- this hook can be defined only as a method:
+.. method:: FSM.duration_TSTATE() -> float|str|None
+.. method:: FSM.duration_TSTATE(edata) -> float|str|None
+  :noindex:
 
-  .. method:: FSM.duration_TSTATE() -> float|str|None
-  .. method:: FSM.duration_TSTATE(edata) -> float|str|None
-    :noindex:
+  Optional method computing the duration of a timed state.
+  It should return either the duration of the ``TSTATE`` in seconds
+  or :const:`None` to indicate that the default duration
+  should be used instead. See also: :ref:`Duration of timed state`.
 
-    An optional method computing the duration of a timed state.
-    It should return either the duration of the ``TSTATE`` in seconds
-    or :const:`None` to indicate that the default duration
-    should be used instead. See also: :ref:`Duration of timed state`.
+  Note that this method is called when the transition to ``TSTATE``
+  is being prepared, so the current state is not set to ``TSTATE`` yet.
 
 
 Dynamic state
 +++++++++++++
 
-- this hook can be defined only as a method:
+.. method:: FSM.select_DSTATE() -> str
+.. method:: FSM.select_DSTATE(edata) -> str
+  :noindex:
 
-  .. method:: FSM.select_DSTATE() -> str
-  .. method:: FSM.select_DSTATE(edata) -> str
-    :noindex:
-
-    This method must return the name of a state to be entered
-    instead of ``DSTATE``. The new state cannot be dynamic.
+  This method defines a :ref:`dynamic pseudo-state <Dynamically selected states>`
+  named ``DSTATE``. When called, it must return the name of a real state
+  to be entered instead of ``DSTATE``. The new state cannot be dynamic.
+  An FSM cannot continue without having a valid state, that's why
+  a problem in :meth:`!FSM.select_DSTATE` always aborts the circuit runner.
 
 
 FSM examples
@@ -498,19 +520,12 @@ FSM parameters
 Summary of common parameters accepted as keyword arguments by classes derived
 from the :class:`FSM` class.
 
-
-``'STATE'``, ``'TSTATE'`` and ``'EVENT'`` are placeholders to be substituted by real
-state and event names.
+``'STATE'`` and ``'TSTATE'`` are placeholders to be substituted by real state names.
 
 - ``t_TSTATE=duration``
     Override for the default duration of ``TSTATE``; see "timed states" in :attr:`FSM.STATES`.
     The value must be a number of seconds
     or a :ref:`string with time units <Time durations with units>`.
-
-- ``cond_EVENT=function``
-    (sequence of functions is also accepted, e.g. ``cond_EVENT=[func1, func2, ... ]``)
-
-    See: :ref:`Conditional events`
 
 - ``enter_STATE=function``
 - ``exit_STATE=function``
@@ -519,12 +534,16 @@ state and event names.
     See: :ref:`State entry and exit actions`
 
 - ``initial=...``
-    This parameter sets the initial FSM state. Default is the first state
+    This parameter sets the initial FSM state. Optionally, the additional
+    data (:attr:`!sdata`) can be initialized as well. Default FSM state is the first state
     listed in :attr:`FSM.STATES`. The *initial* argument also controls
     the state persistence which can be enabled by using
-    :class:`PersistentState` as an initializer.
+    :class:`PersistentState` as a :ref:`block initializer <Initializers>`.
 
-    See: :ref:`Block initializers <Initializers>`
+    The initialization value is usually a single string - the initial state.
+    It can be also a :abbr:`sequence (list or tuple)` containing two values:
+    the initial state (type: `str`) and the initial :attr:`FSM.sdata`
+    contents (type: `dict[str, object]`).
 
 
 FSM Initialization rules

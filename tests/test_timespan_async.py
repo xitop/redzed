@@ -35,18 +35,18 @@ async def test_args(circuit):
         [[2025, 3, 1, 12, 0], [2025, 3, 7, 18, 30, 1, 150_000]],
         [[2025, 10, 10, 10, 30, 0], [2025, 10, 10, 22, 0, 0]],
     ]
-    td_num = redzed.TimeSpan('num_args', initial=arg)   # i.e. redzed.InitValue(arg))
+    ts_num = redzed.TimeSpan('num_args', initial=arg)   # i.e. redzed.InitValue(arg))
 
     for sub_interval in arg:
         for endpoint in sub_interval:
             endpoint.extend([0] * (7-len(endpoint)))    # right-pad to 7 ints
 
     async def tester():
-        assert td_num.rz_export_state() == td_num.event('_get_config') == arg
+        assert ts_num.rz_export_state() == ts_num.event('_get_config') == arg
         arg[1][1] = arg[0][1]
         del arg[0]
-        td_num.event('reconfig', arg)
-        assert td_num.rz_export_state() == td_num.event('_get_config') == arg
+        ts_num.event('reconfig', arg)
+        assert ts_num.rz_export_state() == ts_num.event('_get_config') == arg
 
     await runtest(tester())
 
@@ -98,36 +98,36 @@ async def tfsec(circuit, dynamic):
 
 
 async def test_persistent(circuit):
-    td = redzed.TimeSpan("pers", initial=redzed.PersistentState())
+    ts = redzed.TimeSpan("pers", initial=redzed.PersistentState())
     storage = {}
     circuit.set_persistent_storage(storage)
     conf = []
 
     async def tester1():
         nonlocal conf
-        assert td.rz_export_state() == []
+        assert ts.rz_export_state() == []
         conf = [
             [[2015,5,4,3,2,1,0], [2035,9,8,7,6,5,0]],
             [[2020,1,2,3,40,50,600], [2030,8,9,10,11,12,0]],
             ]
-        td.event('reconfig', conf)
-        assert td.rz_export_state() == conf
+        ts.event('reconfig', conf)
+        assert ts.rz_export_state() == conf
 
     await runtest(tester1())
-    assert strip_ts(storage)[td.rz_key] == conf
-    del td
+    assert strip_ts(storage)[ts.rz_key] == conf
+    del ts
 
     redzed.reset_circuit()
-    td = redzed.TimeSpan("pers", initial=redzed.PersistentState())
+    ts = redzed.TimeSpan("pers", initial=redzed.PersistentState())
     circuit = redzed.get_circuit()
     circuit.set_persistent_storage(storage)
 
     async def tester2():
         nonlocal conf
-        assert td.rz_export_state() == conf
+        assert ts.rz_export_state() == conf
         del conf[0]
-        td.event('reconfig', conf)  # state saved after each event
-        assert td.rz_export_state() == conf
+        ts.event('reconfig', conf)  # state saved after each event
+        assert ts.rz_export_state() == conf
 
     await runtest(tester2())
-    assert strip_ts(storage)[td.rz_key] == conf
+    assert strip_ts(storage)[ts.rz_key] == conf

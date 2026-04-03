@@ -16,7 +16,7 @@ import typing as t
 _logger = logging.getLogger(__package__)
 
 
-def check_identifier(name: str, msg_prefix: str) -> None:
+def check_identifier(name: object, msg_prefix: str) -> None:
     """Raise if *name* is not a valid identifier."""
     if not isinstance(name, str):
         raise TypeError(f"{msg_prefix} must be a string, got {name!r}")
@@ -58,7 +58,7 @@ def func_name(func: Callable[..., object]) -> str:
     # callable objects with __call__ do not have a __name__
     if not isinstance(func, type) and (hasattr(ftype := type(func), '__call__')):
         return f'{ftype.__name__}.__call__'
-    # fail-safe default, though there is no such type of callable
+    # fail-safe default, though there is no such type of callable AFAIK
     return ftype.__name__
 
 

@@ -8,10 +8,10 @@ import pytest
 
 import redzed
 
+from .utils import Exc, Grp
+
 pytestmark = pytest.mark.usefixtures("task_factories")
 
-Exc = pytest.RaisesExc
-Grp = pytest.RaisesGroup
 
 async def test_quick_close(circuit):
     """Shutdown is skipped if init is aborted early."""
