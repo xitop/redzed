@@ -7,7 +7,7 @@ Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
-__all__ = ['Formula', 'formula', 'Trigger', 'trigger', 'triggered']
+__all__ = ['Formula', 'formula', 'Trigger', 'trigger']
 
 from collections.abc import Callable
 import inspect
@@ -85,21 +85,26 @@ class _ExtFunction:
 
     def run_function(self) -> object:
         """Run with output values of referenced blocks."""
-        values: t.Iterable[object] = [
+        values = [
             # @mypy: union-attr: after pre-init '_inputs' does not contain strings
             blk.get(with_previous=self._with_prev)  # type: ignore[union-attr]
             for blk in self._inputs]
         owner = self._owner
-        current = [v[0] for v in values] if self._with_prev else values # type: ignore[index]
-        if UNDEF in current:
-            assert self._owner.circuit.get_state() < circuit.CircuitState.RUNNING
-            if get_debug_level() >= 2:
-                undefs = (
-                    param for param, value in zip(self._parameters, current) if value is UNDEF)
-                _logger.debug(
-                    "%s: NOT calling the function; got <UNDEF> from: %s",
-                    owner, ', '.join(undefs))
-            return UNDEF
+        if owner.circuit.get_state() < circuit.CircuitState.RUNNING:
+            if self._with_prev:
+                current = [v[0] for v in values]    # type: ignore[index]
+            else:
+                current = values
+            if UNDEF in current:
+                # this could happen only in a formula, not in a trigger
+                if get_debug_level() >= 2:
+                    undefs = (
+                        param for param, value in zip(self._parameters, current)
+                        if value is UNDEF)
+                    _logger.debug(
+                        "%s: NOT calling the function; got <UNDEF> from: %s",
+                        owner, ', '.join(undefs))
+                return UNDEF
         kwargs = dict(zip(self._parameters, values, strict=True))
         if get_debug_level() >= 1:
             _logger.debug(
@@ -166,9 +171,6 @@ def trigger(func: _FUNC) -> _FUNC:
     """
     Trigger(func)
     return func
-
-
-triggered = trigger     # transitory
 
 
 @t.final

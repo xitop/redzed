@@ -30,7 +30,7 @@ Examples:
   | ``'2m'`` = 2 minutes = 120.0 seconds
   | ``'20h15m10s'`` = 20 hours + 15 minutes + 10 seconds = 72_910.0
   | ``'2d 12h'`` = 2 days + 12 hours = 216_000.0
-  | ``'1.25 H'`` = 1 and a quarter of and hour = 4_500.0
+  | ``'1.25 H'`` = one and a quarter of an hour = 4_500.0
   | ``'200ms'`` = 200 milliseconds = 0.2
 
 
@@ -66,13 +66,13 @@ Conversions routines:
   Arguments *upper*  and *sep* are ignored in this mode.
 
   Argument *seconds* cannot be negative. Value 0.0 is converted to "0s",
-  values below 0.001 are converted to "1ms" (or equivalent - depending
+  other values below 0.001 are converted to "1ms" (or equivalent - depending
   on flags). All remaining values are rounded to whole milliseconds.
 
   When *approx* flag is set, the conversion rounds off the least significant part
   of the value to make the result shorter and better human readable.
 
-.. function:: time_period(period: object, passthrough=(), zero_ok: bool = False) -> Any
+.. function:: time_period(period: object, passthrough=(), zero_ok: bool = False)
 
   Convert time period/duration given as a number or as a string with units.
 

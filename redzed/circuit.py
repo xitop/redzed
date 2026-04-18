@@ -25,7 +25,7 @@ from .block import Block
 from .cron_service import Cron
 from .debug import get_debug_level, set_debug_level
 from .defs import CircuitState, UNDEF
-from .initializers import AsyncInitializer, SaveFlags
+from .initializers import AsyncInitializer, SaveFlags, SF_NONE
 from .formula_trigger import Formula, Trigger
 from .signal_shutdown import TerminatingSignal
 from .utils import check_identifier, tasks_are_eager, time_period
@@ -283,14 +283,19 @@ class Circuit:
             self._state_change.set()
             self._state_change = None
 
-    async def reached_state(self, state: CircuitState) -> bool:
+    async def reached_state(self, state: CircuitState|str) -> bool:
         """
         Async synchronization tool.
 
         Wait until the DESIRED OR HIGHER state is reached.
         """
-        if not isinstance(state, CircuitState):
-            raise TypeError(f"Expected CircuitState, got {state!r}")
+        if isinstance(state, str):
+            try:
+                state = CircuitState[state]
+            except KeyError:
+                raise ValueError(f"'{state}' is not a valid circuit state name") from None
+        elif not isinstance(state, CircuitState):
+            raise TypeError(f"Expected a circuit state, got {state!r}")
         while self._state < state:
             if self._state_change is None:
                 self._state_change = asyncio.Event()
@@ -346,7 +351,7 @@ class Circuit:
             if ps_blocks:
                 self.log_warning("No data storage, disabling state persistence")
             for blk in ps_blocks:
-                blk.rz_save_flags = SaveFlags(0)
+                blk.rz_save_flags = SF_NONE
             return
         # clear the unused items
         used_keys = {pblk.rz_key for pblk in ps_blocks}
@@ -425,6 +430,10 @@ class Circuit:
                 "Initializing blocks having sync initializers only", sync_blocks)
             for blk in sync_blocks:
                 self.init_block_sync(blk)
+
+        self._set_state(CircuitState.INIT_BLOCKS)
+        await asyncio.sleep(0)
+
         if async_blocks:
             self._log_debug2_blocks(
                 "Initializing blocks having some async initializers", async_blocks)
@@ -499,8 +508,6 @@ class Circuit:
                 # union-attr: checked with .has_method()
                 pe.rz_pre_init()   # type: ignore[union-attr]
 
-        self._set_state(CircuitState.INIT_BLOCKS)
-        await asyncio.sleep(0)
         await self._init_blocks(list(self.get_items(Block)))
 
         start_blocks = [blk for blk in self.get_items(Block) if blk.has_method('rz_start')]
@@ -535,6 +542,12 @@ class Circuit:
                 now = time.time()
                 for blk in ps_blocks:
                     self.save_persistent_state(blk, now)
+                    blk.rz_save_flags = SF_NONE
+            if self._persistent_close is not None:
+                try:
+                    self._persistent_close()
+                except Exception as err:
+                    self.log_error("Persistent storage close function failed: %r", err)
 
         stop_triggers = list(self.get_items(Trigger))
         if stop_triggers:
@@ -580,11 +593,6 @@ class Circuit:
                 with error_debug(close, suppress_error=True):
                     close.rz_post_stop()
 
-        if self._persistent_dict is not None and self._persistent_close is not None:
-            try:
-                self._persistent_close()
-            except Exception as err:
-                self.log_error("Persistent storage close function failed: %r", err)
 
     async def _runner_core(self) -> t.NoReturn:
         """
@@ -683,7 +691,7 @@ class Circuit:
     async def watchdog(
             self,
             coro: Coroutine[object, object, object],
-            immediate_start: bool,
+            start_state: CircuitState,
             name: str|None
             ) -> None:
         """
@@ -698,14 +706,15 @@ class Circuit:
         elif this_task.get_name() != name:
             this_task.set_name(name)
         longname = f"Task '{name}'; coro '{coro.__name__}'"
-        if not immediate_start:
-            self.log_debug2("%s waiting for RUNNING state", longname)
-            if not await self.reached_state(CircuitState.RUNNING):
-                self.log_debug1("%s not started", longname)
-                coro.close()    # won't be awaited; prevent a warning about that
-                # Failed start! The return value does not matter now.
-                # No abort() here, because this is not an error, it's a consequence.
-                return
+        if start_state > self._state:
+            self.log_debug2("%s waiting for %s state", longname, start_state.name)
+            await self.reached_state(start_state)
+        if self._state > CircuitState.RUNNING:
+            # Failed start!
+            self.log_debug1("%s not started", longname)
+            coro.close()    # won't be awaited; prevent a warning about that
+            # No abort() here, because this is not an error, it's a consequence.
+            return
         self.log_debug1("%s started", longname)
         try:
             await coro  # return value of a service is ignored
@@ -729,17 +738,29 @@ class Circuit:
 
     def create_service(
             self, coro: Coroutine[object, object, object],
-            immediate_start: bool = False,
+            start_state: CircuitState = CircuitState.RUNNING,
             auto_cancel: bool = True,
             **task_kwargs
             ) -> asyncio.Task[None]:
         """Create a service task for the circuit."""
         if self.is_shut_down():
             raise RuntimeError("Cannot create a service after shutdown")
+        # check args before creating a task, because
+        # exceptions raised in a task might remain unnoticed
+        if isinstance(start_state, str):
+            try:
+                start_state = CircuitState[start_state]
+            except KeyError:
+                raise ValueError(f"'{start_state}' is not a valid circuit state name") from None
+        elif not isinstance(start_state, CircuitState):
+            raise TypeError(
+                f"Argument start_state must be a circuit state, but got {start_state!r}")
+        if start_state > CircuitState.RUNNING:
+            raise ValueError(f"Cannot start a service at state '{start_state.name}'")
         # Python 3.12 and 3.13 only: Eager tasks start to run before their name is set.
         # As a workaround we tell the watchdog wrapper the name.
         task = asyncio.create_task(
-            self.watchdog(coro, immediate_start, task_kwargs.get('name')), **task_kwargs)
+            self.watchdog(coro, start_state, task_kwargs.get('name')), **task_kwargs)
         if auto_cancel:
             self._auto_cancel_tasks.add(task)
         # mark exceptions as consumed, because they were reported with abort
@@ -806,7 +827,8 @@ async def run(
                     if task_cnt > 1:
                         name += f" {i}/{task_cnt}"
                     tg.create_task(
-                        circuit.watchdog(coro, immediate_start=True, name=name), name=name)
+                        circuit.watchdog(coro, CircuitState.INIT_BLOCKS, name),
+                        name=name)
         except ExceptionGroup as eg:
             exceptions: list[Exception] = []
             for exc in leaf_exceptions(eg):

@@ -54,7 +54,7 @@ This includes a *stop_value* if it is defined.
 
 Unlike the input data, the output data originate inside the circuit,
 so their validation provides only an additional layer of protection.
-The main use-case here is the preprocessing.
+The main use case here is the preprocessing.
 
 
 Sync outputs
@@ -105,7 +105,7 @@ is a typical example of blocking I/O.
 CPU bound operations are best run in a separate process. We won't go into
 details, because output functions are not CPU bound. If you find this topic
 interesting, suggested search keywords are: "Python multiprocessing",
-Python :abbr:`GIL (Global Interpreter Lock)`" and "Python free threading".
+"Python :abbr:`GIL (Global Interpreter Lock)`" and "Python free threading".
 
 Slow I/O usually has its native async API. Slow I/O without an async API
 can be run in a separate thread; see the example in :class:`OutputWorker`.
@@ -115,7 +115,7 @@ they are produced, every async output block needs a buffer.
 The buffer receives data on one end and provides an interface for an output
 block on the other end. A buffer may receive data from multiple sources.
 
-There are two major use-cases:
+There are two major use cases:
 
 **Worker mode**
 
@@ -195,7 +195,7 @@ Worker mode
     - All arguments (including *name*) are keyword-only.
     - By default, the output block's name is derived from the buffer's name.
       When the name ends with ``"buffer"`` or ``"buff"`` (case insensitive),
-      that part is removed. Then a short ``"io"`` or ``"_io"`` suffix is appended.
+      that suffix is removed. Then a short ``"io"`` or ``"_io"`` suffix is appended.
       Use ``name=...`` to set the name explicitly.
     - By default, the comment will be copied from the buffer.
       Use ``comment=...`` to override.
@@ -207,8 +207,8 @@ Worker mode
 
 .. class:: OutputWorker(name, *, aw_func, buffer, workers=1, stop_timeout=..., **block_kwargs)
 
-  Repeatedly fetch a value from a *buffer* and run an async function *aw_func* with that
-  value until it terminates. Wait for a value when the buffer is empty.
+  When a worker is idle, fetch a value from *buffer* and run an async function *aw_func*
+  with that value until it terminates. Wait for a value when the buffer is empty.
 
   :param buffer: A data buffer; :class:`QueueBuffer` is required for proper functioning.
 

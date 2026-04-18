@@ -66,7 +66,7 @@ Auxiliary blocks
     that each wait time will be randomly chosen from the range of 85% to 115%
     of the original interval.
 
-  :class:`!Repeat` is intended to repeat events destined to an output block.
+  :class:`!Repeat` is intended to repeat events addressed to an output block.
   Its purpose is to minimize the chance that some connected device will fail to act
   due to transient problems. The key requirement is that repeating must not
   change the outcome, i.e. multiple invocations must have the same effect

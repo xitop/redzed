@@ -23,17 +23,11 @@ Initialization by an external event
 -----------------------------------
 
 This is a special case of initialization happening by coincidence.
-There is a brief time window in the :attr:`CircuitState.INIT_BLOCKS` state
-when it could happen.
+Sometimes there exists a brief time window during initialization when an event
+may be delivered to an uninitialized block.
 
-When an event arrives to an uninitialized block, the block will first try
-to initialize itself and then to handle the event. The event often
-fully initializes the block. The exact procedure is:
-
-1. call initializers specified by the *initial* argument
-   *except* the async ones and *except* those already tried
-2. if still not initialized, call the built-in initializer
-3. handle the event - initialized or not
+This is an advanced topic covered :ref:`here <Issue 1: destination block is not initialized>`.
+Summary: Redzed will do its best to handle the event.
 
 
 Initializers
@@ -96,7 +90,7 @@ Sync initializers
 
   Initialize with a fixed value.
 
-  This is the most common initializer and for brevity Block's *initial* argument
+  This is the most common initializer. For brevity, Block's *initial* argument
   allows to enter just the value ``initial=value`` instead of
   ``initial=redzed.InitValue(value)``.
 

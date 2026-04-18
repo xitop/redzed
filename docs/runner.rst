@@ -32,7 +32,8 @@ Running a circuit
 .. function:: run(*coroutines, catch_sigterm: bool = True) -> None
   :async:
 
-  The main entry point. Execute the circuit runner and all supporting *coroutines*.
+  The main entry point. Execute the circuit runner and all supporting *coroutines*
+  until shutdown.
 
   :param Coroutine coroutines:
 
@@ -42,13 +43,14 @@ Running a circuit
 
   :param bool catch_sigterm:
 
-    When *catch_sigterm* is true (default), a signal handler that shuts down the runner
-    upon ``SIGTERM`` delivery will be temporarily installed. This allows for a clean
-    remote stop. Note that :func:`run` will return normally in this case.
+    When *catch_sigterm* is true (default), a signal handler that shuts down
+    the runner upon ``SIGTERM`` delivery will be installed while :func:`!run`
+    is active. This allows for a clean remote stop. Note that :func:`run`
+    will return normally in this case.
 
-  In case of a failure, :func:`!run` raises an :exc:`!ExceptionGroup` containing a flat list
-  of all errors caught in the circuit runner, in its service tasks and
-  and in supporting tasks. Their tracebacks correspond to the place
+  In case of a failure, :func:`!run` raises an :exc:`!ExceptionGroup` containing
+  a flat list of all errors caught in the circuit runner, in its service tasks
+  and supporting tasks. Their tracebacks correspond to the place
   where the exceptions were caught and reported from. The error list
   can be also retrieved with :meth:`Circuit.get_errors`.
 
@@ -67,29 +69,127 @@ Running a circuit
 Runner's life-cycle
 -------------------
 
-Find below a list of successive steps taken by the runner. They are also reflected in state changes.
-See also :meth:`Circuit.get_state` and the corresponding synchronization tool :meth:`Circuit.reached_state`.
+Find below a list of successive steps taken by the runner together
+with the corresponding state changes.
 
-1. Start supporting coroutines as individual tasks in a :abbr:`task group (asyncio.TaskGroup)`.
-2. Initialize and start all components. Asynchronous block initialization routines
-   of distinct blocks are invoked concurrently.
-3. Keep the circuit running until :meth:`Circuit.shutdown`, :meth:`Circuit.abort`
+1. state :attr:`CircuitState.INIT_CIRCUIT`:
+
+   a. initialize the circuit
+   #. initialize blocks that use only synchronous initializers
+
+#. state :attr:`CircuitState.INIT_BLOCKS`:
+
+   a. allow events
+   #. start :ref:`supporting coroutines <Supporting tasks>`
+      as individual tasks in a :abbr:`task group (asyncio.TaskGroup)`
+   #. initialize blocks with asynchronous initializers; async block initialization
+      routines of distinct blocks are invoked concurrently.
+      Please read the next section about specifics of
+      :ref:`event handling during this phase <Event handling during async initialization>`
+   #. enable triggers; run their functions for the first time
+   #. start blocks` activities
+
+#. state :attr:`CircuitState.RUNNING`:
+
+   Keep the circuit running until :meth:`Circuit.shutdown`, :meth:`Circuit.abort`
    or an error. If an error occurs in previous steps, this state won't be reached
    and the runner goes directly to the shutdown state below.
-4. Shut the circuit down, in detail:
 
-   - disallow events
-   - save states to persistent storage
-   - deactivate all trigger blocks
-   - call stop/cleanup routines;
-     asynchronous cleanup routines (if any) are invoked concurrently
-   - cancel and await service tasks
+#. state :attr:`CircuitState.SHUTDOWN`:
+
+   a. disallow events
+   #. save states to persistent storage; close the storage
+   #. disable triggers
+   #. call :ref:`stop functions <Stop functions>` of output blocks
+   #. call sync cleanup routines
+   #. cancel and await service tasks
+   #. concurrently call async cleanup routines
+   #. cancel and await supporting tasks
 
    Failures are logged, but they don't interrupt the shutdown procedure.
    The whole shutdown could take time up to the largest of all
-   :ref:`stop_timeout <6. Shutdown and cleanup>` values (plus some small overhead).
-5. Exit the runner, cancel and await supporting tasks. If any errors were detected
-   or were reported with :meth:`Circuit.abort`, raise them all in a :exc:`!ExceptionGroup`.
+   :ref:`stop_timeout <6. Shutdown and cleanup>` values (plus overhead).
+
+#. state :attr:`CircuitState.CLOSED`:
+
+   Exit the runner. If any errors were detected or were reported
+   with :meth:`Circuit.abort`, raise them all in an :exc:`!ExceptionGroup`.
+
+
+Event handling during async initialization
+------------------------------------------
+
+When all blocks in a circuit utilize only synchronous initializers, there is
+a single "switch on" moment after which is the circuit fully initialized and operational.
+
+However, when asynchronous initializers are actively used, that single moment
+becomes a time period. Application code running during this period of async
+initialization (list item '2c' in the previous section) must take
+into account that some blocks may not be initialized yet. Failing to do so
+may lead to incorrect circuit responses.
+
+Triggers, formulas and FSM hooks are inactive during the time period in question.
+The affected application code can be thus narrowed to handling of
+:abbr:`external (forwarded from external systems, as opposed to internally generated)`
+events.
+
+Issue 1: destination block is not initialized
++++++++++++++++++++++++++++++++++++++++++++++
+
+When an event arrives to an uninitialized block, the block will first try
+to initialize itself and then to handle the event. The event often
+fully initializes the block. The exact procedure is:
+
+1. call initializers specified by the *initial* argument
+   *except* the async ones and *except* those already tried
+2. if still not initialized, call the built-in initializer
+3. handle the event - initialized or not
+
+
+Issue 2 - other block is not initialized
+++++++++++++++++++++++++++++++++++++++++
+
+.. important::
+
+  When an application code involved in handling of external events
+  fetches an output value from an asynchronously initialized block,
+  it must take into account that the value can be :const:`!UNDEF`.
+  When it happens, the recommended reaction is to terminate
+  the :meth:`Block.event` call with :exc:`CircuitNotReady`.
+
+Example: in the following snippet, the ``auto_blk`` may receive an external ``'start'``
+event before the ``enable_blk`` is set to :const:`True` of :const:`False`::
+
+  import redzed as rz
+
+  enable_blk = rz.Memory('enable', validator=bool, initial=rz.InitTask(...))
+
+  class Auto(rz.FSM):
+      STATES = ['off', 'on']
+      EVENTS = [('start', ['off'], 'on'), ...]
+      def cond_start(self):
+          # problematic code
+          return enable_blk.get()
+
+  auto_blk = Auto('auto')
+
+If that happens, ``enable.blk.get()`` returns :const:`UNDEF`, which is falsey,
+and the event will be rejected as if the start action was regularly disabled.
+Correct code::
+
+      def cond_start(self):
+          if (enabled := enable_blk.get()) is rz.UNDEF:
+              raise rz.CircuitNotReady("'enable' value is not available")
+          return enabled
+
+
+Issue 3 - triggers are not activated yet
+++++++++++++++++++++++++++++++++++++++++
+
+Before activating its triggers, the circuit waits until all its blocks are initialized.
+Waiting for an async initialization of unrelated circuit blocks may create delays
+in circuit responses between a successfully handled event and corresponding activation
+of triggered functions.
 
 
 Stopping the circuit
@@ -104,14 +204,13 @@ command or due to an error with the abort command.
   .. important::
 
     Do not exit the application immediately after stopping the runner.
-    Always wait till the :func:`run` function returns.
+    Always wait till the :func:`run` function returns. Hint: If you can't
+    do that directly, use ``await circuit.reached_state('CLOSED')``.
 
 - From another process:
-    By default, sending a ``SIGTERM`` signal will stop the simulation
-    with a proper cleanup, of course only if it is running.
-
-    The corresponding signal handler is installed only while :func:`run`
-    is actually running.
+    By default, sending a ``SIGTERM`` signal will properly shut down a running
+    simulation. The corresponding signal handler is installed only while
+    :func:`run` is actually running.
 
 
 Supporting tasks
@@ -127,15 +226,13 @@ about the difference between two main task types in Redzed.
 .. image:: _static/img/tasks.png
 
 **Service tasks:**
-  Service tasks (or coroutines) run Redzed's internal code. They provide
+  Service tasks run Redzed's *internal code*. They provide
   services to circuit blocks while the circuit is running.
-  A service task is typically started by a circuit block that requires
-  an async task for its work and for this reason calls :meth:`Circuit.create_service`
-  during the initialization. When the circuit
-  shuts down, it automatically cancels running service tasks.
+  Service task are started automatically by circuit blocks that require them.
+  When the circuit shuts down, it automatically cancels running service tasks.
 
 **Supporting tasks:**
-  Supporting tasks (or coroutines) run application's code. Typically they act
+  Supporting tasks (or coroutines) run *application's code*. Typically they act
   as an adapter between Redzed's API and the application API.
 
 
@@ -148,10 +245,10 @@ may stop only when cancelled. All other kinds of termination will
 abort the circuit runner. Even a normal exit is treated as an error
 if it happens before shutdown.
 
-Supporting tasks are started by :func:`run` immediately after starting
-the runner. They may assume the circuit blocks are ready to accept events, but their
-initialization might be still in progress. For details please read about the
-:ref:`initialization process <Initialization process>`.
+Supporting tasks are started by :func:`run` immediately after circuit
+initialization. They may assume the circuit blocks are ready to accept events,
+but the async part of the initialization might be still in progress
+as explained in previous sections.
 
 If the task should start its activity after circuit's initialization, use
 :meth:`Circuit.reached_state()` to wait until the initialization finishes.

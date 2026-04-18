@@ -8,6 +8,16 @@ Version numbers are based on the release date (Y.M.D). Only recent changes
 are listed here. Full history can be found on GitHub.
 
 
+26.4.20 (release candidate)
+===========================
+
+- fix regression from 26.4.4: supporting tasks were started too early
+- :meth:`Circuit.create_service`: parameter *immediate_start* was replaced by
+  *start_state*
+- :meth:`Circuit.reached_state`: circuit state can be given also as a string
+- names discontinued in 26.3.13 due to renaming were removed
+
+
 26.4.4 (last beta)
 ==================
 
@@ -82,38 +92,15 @@ New features, improvements:
 - :ref:`Data validators <Data validation>` can reject values
   also by returning :const:`UNDEF`
 - Triggers and Formulas now offer simple
-  :ref:`access to the previous output <Access to the previous output>` value
+  :ref:`access to the previous output <Access to previous output>` value
 - :class:`FSM`: output of ``'_get_config'`` event is now JSON serializable
 - :class:`Formula` now auto-detects the name the same way as :deco:`formula`
 - :meth:`Circuit.get_persistent_storage` was added
 
 
-26.2.18 (beta)
+Older releases
 ==============
 
-Breaking changes:
-
-- :meth:`!Block.is_undef` was replaced by :meth:`Block.is_initialized`.
-  Note the inverse meaning.
-- :ref:`Logic block <Block API>` output modifiers were a bad design
-  choice and were removed. Approximate replacements of options *output_counter*
-  and *output_previous* are *always_trigger* and :meth:`Block.get_prev`
-  respectively.
-- :class:`Counter`: event ``'put'`` was renamed to ``'set'``
-
-New features, improvements:
-
-- :class:`MemoryBuffer`, :class:`QueueBuffer`: new ``.attach_output()`` method
-  allows to create a matching async output block easily
-- :deco:`formula`: new naming rule
-- :class:`Counter`: event ``'reset'`` was added
-- :class:`Repeat`: *jitter_pct* option was added
-- Event data entries with :const:`UNDEF` value are automatically
-  filtered out by :meth:`Block.event`
-
-
-Older releases:
-
-- 26.2.4 first beta
-- 26.1.28 alpha stage
+- 26.2.4, 26.2.18 Beta releases
+- 26.1.28 Alpha stage
 - 25.12.30 Initial release

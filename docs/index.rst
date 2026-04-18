@@ -26,7 +26,7 @@ Table of contents
   installation
 
 .. toctree::
-  :caption: Circuit construction
+  :caption: Circuit basics
   :maxdepth: 2
 
   block_trigger_formula

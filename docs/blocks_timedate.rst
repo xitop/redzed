@@ -219,5 +219,5 @@ Cron service
 ============
 
 Blocks :class:`TimeDate` and :class:`TimeSpan` are implemented as clients
-of the :ref:`cron <Cron server>` internal service. Additional information,
+of the :ref:`Cron <Cron server>` internal service. Additional information,
 e.g. about DST handling, is contained there.

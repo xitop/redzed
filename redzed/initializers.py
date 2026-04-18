@@ -9,7 +9,7 @@ from __future__ import annotations
 
 __all__ = [
     'AsyncInitializer', 'SyncInitializer',
-    'InitFunction', 'InitTask', 'InitValue', 'InitWait', 'PersistentState', 'RestoreState',
+    'InitFunction', 'InitTask', 'InitValue', 'InitWait', 'PersistentState',
     'SaveFlags', 'SF_EVENT', 'SF_INTERVAL', 'SF_NONE', 'SF_OUTPUT']
 
 
@@ -177,9 +177,6 @@ class PersistentState(SyncInitializer):
             blk.log_error(
                 "%s could not apply the initialization value: %r", self.type_name, err)
             return
-
-
-RestoreState = PersistentState      # transitory
 
 
 class AsyncInitializer:

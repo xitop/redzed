@@ -72,7 +72,9 @@ async def test_service(circuit, immediate):
         def rz_pre_init(self):
             # pylint: disable=no-member
             self.circuit.create_service(
-                self._test_task(), name=self.x_name, immediate_start=immediate)
+                self._test_task(),
+                name=self.x_name,
+                start_state='INIT_CIRCUIT' if immediate else 'RUNNING')
 
         def rz_init(self, value):
             self._set_output("default")

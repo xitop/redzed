@@ -11,7 +11,7 @@ Block API
 
 .. class:: Block(name, *, comment: str="", initial=redzed.UNDEF, stop_timeout=None, always_trigger=False, **x_kwargs)
 
-  Base class of all logic blocks. A :class:`Block` has no function by itself
+  Base class of all logic blocks. A :class:`!Block` has no function by itself
   and cannot be instantiated.
 
   .. attention::
@@ -83,13 +83,13 @@ For a description visit :ref:`setting the name <Setting the name>`.
     When :const:`False`, activate connected triggers only when the output changes.
     This is the default. When :const:`True`, activate the triggers every time
     a value is output. Set this option if you want to activate directly connected
-    triggers for each value in a series of same values.
+    triggers for each value in a series of equal values.
 
 .. method:: Block.is_initialized() -> bool
 
   Check if the output differs from :const:`UNDEF`, i.e. if the block has been initialized.
 
-.. method:: Block.get(*, with_previous: bool = False) -> object
+.. method:: Block.get(*, with_previous: bool = False) -> object|tuple[object,object]
 
   - when *with_previous* is :const:`False` (default):
       Get the current output value. Return :const:`UNDEF` if the block
@@ -155,7 +155,7 @@ for its functionality.
   Optional. Set up necessary resources that could not be prepared in ``__init__()``.
 
   If implemented, it is called once before initialization. It is typically used for
-  resolving block names with :meth:`Circuit.resolve_name`. Using names allows to reference blocks
+  resolving block names with :meth:`Circuit.resolve_name`; using names allows to reference blocks
   that are defined later in the code. Do not set the internal state or the output here.
 
 .. method:: Block.rz_init(init_value: object, /) -> None
@@ -262,7 +262,8 @@ State saving flags
     :type: redzed.SaveFlags
 
     State persistence settings set by block's :class:`PersistentState` initializer.
-    The value is a combination of :class:`SaveFlags` OR-ed together.
+    The value is valid only until shutdown.
+    It is a combination of :class:`SaveFlags` OR-ed together.
     :attr:`!rz_save_flags` is :abbr:`truthy (boolean value is True)`
     if and only if the state persistence is switched on, i.e.:
 
@@ -369,31 +370,6 @@ these "stop" functions may be called even if :meth:`rz_start` hasn't been called
 Sending and receiving:
 ----------------------
 
-.. method:: Block.is_ready() -> bool
-
-  Check whether the block is ready to accept non-monitoring events.
-  If not ready, these events will be rejected with a :exc:`CircuitNotReady` error.
-  Monitoring events are always accepted.
-
-  The default implementation checks the circuit's state, because
-  not only the block itself, but also dependent formulas and triggers
-  must be ready. This implies that normally are blocks ready only in
-  states :attr:`CircuitState.INIT_BLOCKS` and :attr:`CircuitState.RUNNING`.
-
-  .. dropdown:: Note for developers
-
-    There exist blocks with special requirements for which is the default
-    too narrow. For instance output blocks do shut down after
-    :ref:`stop functions <Stop functions>` and the stop functions are
-    active during circuit shutdown. These special blocks needs to override
-    :meth:`!Block.is_ready` and define their own rules.
-
-    However, it could be easily overlooked that a block operates also in circuit
-    states where formulas and triggers are not working. In order to prevent
-    mistakes, we recommend that blocks with custom :meth:`!Block.is_ready`
-    have a fixed output value, because there is no reason to connect
-    formulas or triggers to a fixed output.
-
 .. method:: Block.event(etype: str, /, evalue: object = redzed.UNDEF, **edata: object) -> object
 
   .. important::
@@ -412,15 +388,16 @@ Sending and receiving:
   All event data items whose value is :const:`UNDEF` are removed before calling
   the handler.
 
-  While a block is handling an event, it will raise an exception when it receives
-  an event of exactly the same type. This precaution stops otherwise infinite loops.
+  A block will raise a :exc:`RuntimeError` exception and will abort the runner when
+  during an event handling it receives another event of exactly the same *etype*.
+  This precaution stops otherwise infinite loops.
 
 .. function:: send_event(name: str, etype: str, /, evalue: object = redzed.UNDEF, **edata: object) -> object
 
   Send an event to a block given by its *name* and return the result.
   After resolving the name, remaining arguments are passed to :meth:`Block.event`.
 
-  Following exceptions may be raised during normal operation:
+Following exceptions may be raised by :meth:`!Block.event()`:
 
 .. exception:: UnknownEvent
 
@@ -430,15 +407,44 @@ Sending and receiving:
 .. exception:: ValidationError
   :noindex:
 
-  Sent data was rejected by block's validator. Main article: :ref:`Data validation`.
+  Event data was rejected by block's validator. Main article: :ref:`Data validation`.
 
 .. exception:: CircuitNotReady
 
   This exception is subclassed from :exc:`!RuntimeError`. It is raised when
-  a block is not ready to process events, e.g. during shutdown.
-  See also: :meth:`Block.is_ready`.
+  a block is not ready to process an event, because the circuit initializes itself
+  or is shutting down. This error is a transient condition and external
+  senders should try again later.
 
   :ref:`Monitoring events` are excluded from the check and are always accepted.
+  See also :meth:`!Block.is_ready` below.
+
+.. method:: Block.is_ready() -> bool
+
+  This method defines when a block is ready to accept a non-monitoring event.
+  When a block is not ready, events will be immediately rejected with a :exc:`CircuitNotReady`
+  error. *The opposite is not true!* Even if an event is accepted, :exc:`!CircuitNotReady`
+  could be still raised during its handling. That's why it is preferred to use
+  ``try / except redzed.CircuitNotReady`` around a :meth:`Block.event` call
+  if you need to handle the not-ready condition.
+
+  The default implementation checks the circuit's state and returns :const:`True`
+  (i.e. ready) only in states :attr:`CircuitState.INIT_BLOCKS` and :attr:`CircuitState.RUNNING`.
+  Only developers of logic blocks may need to adjust the default as explained in the note.
+
+  .. dropdown:: Note for developers
+
+    There exist blocks with special requirements for which is the default
+    too narrow. For instance output blocks do shut down after
+    :ref:`stop functions <Stop functions>` and the stop functions are
+    active during circuit shutdown. These special blocks needs to override
+    :meth:`!Block.is_ready` and define their own rules.
+
+    However, it could be easily overlooked that a block operates also in circuit
+    states where formulas and triggers are not working. In order to prevent
+    mistakes, we recommend that blocks with a customized :meth:`!Block.is_ready`
+    have a fixed output value, because then there is no reason to connect
+    formulas or triggers to it.
 
 
 Event handlers:
@@ -462,8 +468,9 @@ Event handlers:
 All event handlers are supposed to extract their arguments from the *edata*.
 Any extra items present there must be ignored.
 
-When developing an event handler, take into consideration how the returned data
-will be processed or transmitted. If not sure, prefer JSON serializable data structures.
+When developing a handler for external events, take into consideration how the data
+will be transmitted between the external system and the Redzed application.
+If not sure, prefer JSON serializable data structures.
 
 
 8. Logging functions

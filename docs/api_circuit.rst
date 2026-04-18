@@ -30,8 +30,8 @@ Circuit API
 
   Circuit state symbols.
 
-  These are integer enums. Their value may only increase during
-  the circuit's life-cycle. Listed in order from the initial state
+  These are integer enums. Their value may only increase during the circuit runner's
+  :ref:`life-cycle <Runner's life-cycle>`. Listed in order from the initial state
   (smallest value) to the final state (highest value):
 
   .. attribute:: UNDER_CONSTRUCTION
@@ -116,10 +116,17 @@ Circuit API
 
   Return the current :class:`CircuitState`.
 
-.. method:: Circuit.reached_state(state: CircuitState) -> bool
+.. method:: Circuit.is_shut_down() -> bool:
+
+  Check, if the circuit is no longer running.
+  This simple helper returns :const:`True` if and only if
+  the current state is :attr:`CircuitState.SHUTDOWN` or higher.
+
+.. method:: Circuit.reached_state(state: CircuitState|str) -> bool
   :async:
 
-  Synchronization tool.
+  Synchronization tool. The *state* can be given as a :class:`CircuitState`
+  enum member or as its name; e.g. ``redzed.CircuitState.RUNNING`` or just ``'RUNNING'``.
 
   Wait until the desired circuit *state* is reached. Because the exact *state*
   may have been skipped due to an error, :meth:`!reached_state` returns
@@ -284,7 +291,7 @@ Always use the :func:`run` entry point to run the circuit!
   Return seconds since runner's start or 0.0 if it hasn't started yet.
   This time is displayed in log messages in :ref:`debug level <Debug levels>` 3.
 
-.. method:: Circuit.create_service(coro: Coroutine, immediate_start: bool = False, auto_cancel: bool = True, **task_kwargs) -> None
+.. method:: Circuit.create_service(coro: Coroutine, start_state: CircuitState = CircuitState.RUNNING, auto_cancel: bool = True, **task_kwargs) -> None
 
   Create a task providing some :ref:`service <Service tasks vs. supporting tasks>`
   to one or more circuit blocks. Usually a block creates the task it needs during
@@ -295,9 +302,10 @@ Always use the :func:`run` entry point to run the circuit!
   are passed to the :func:`!asyncio.create_task` function. It is recommended
   to give the task a name for better identification.
 
-  By default, the coroutine will be called when the circuit successfully reaches
-  the :attr:`CircuitState.RUNNING` state. If *immediate_start* is true,
-  the coroutine will be called asap.
+  The coroutine will be called when the circuit successfully reaches
+  the *start_state* which defaults to :attr:`CircuitState.RUNNING`.
+  This is also the highest allowed *start_state*, because it is
+  followed by shutdown.
 
   If *auto_cancel* is true (default), the task will be automatically
   cancelled during shutdown. Typically, only output blocks set *auto_cancel*

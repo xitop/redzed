@@ -111,7 +111,6 @@ def test_validator(circuit, exc, suppress):
 
 @pytest.mark.parametrize(
     'exctype', [redzed.ValidationError, TypeError, ValueError, ArithmeticError])
-# pylint: disable-next=unused-argument
 def test_broken_validator(circuit, exctype):
     """Test a validator with a problem"""
     def validator(value):

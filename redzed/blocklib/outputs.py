@@ -39,7 +39,7 @@ class OutputFunc(redzed.Block):
             stop_function_.__qualname__ += self.name
             stop_function_.__name__ += self.name
         if triggered_by is not None:
-            @redzed.triggered
+            @redzed.trigger
             def trigger(value=triggered_by) -> None:
                 self.event('put', value)
 
@@ -253,7 +253,7 @@ class _Buffer(_Validate, redzed.Block):
             stop_function_.__qualname__ += self.name
             stop_function_.__name__ += self.name
         if triggered_by is not None:
-            @redzed.triggered
+            @redzed.trigger
             def trigger(value=triggered_by) -> None:
                 self.event('put', value)
 

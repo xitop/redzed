@@ -19,13 +19,13 @@ class Timer(FSM):
     """
 
     STATES = [
-        ['off', float("inf"), 'on'],
-        ['on', float("inf"), 'off']]
+        ('off', float("inf"), 'on'),
+        ('on', float("inf"), 'off')]
     EVENTS = [
-        ['start', ..., 'on'],
-        ['stop', ..., 'off'],
-        ['toggle', ['on'], 'off'],
-        ['toggle', ['off'], 'on']]
+        ('start', ..., 'on'),
+        ('stop', ..., 'off'),
+        ('toggle', ['on'], 'off'),
+        ('toggle', ['off'], 'on')]
 
     def __init__(self, *args, restartable: bool = True, **kwargs) -> None:
         if 't_period' in kwargs:

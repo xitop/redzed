@@ -142,7 +142,9 @@ class DataPoll(redzed.Block):
 
     def rz_pre_init(self) -> None:
         self.circuit.create_service(
-            self._poller(), name=f"Data polling task at {self}", immediate_start=True)
+            self._poller(),
+            start_state=redzed.CircuitState.INIT_CIRCUIT,
+            name=f"Data polling task at {self}")
 
     async def _poller(self) -> t.NoReturn:
         """Data polling task: repeatedly get a value."""

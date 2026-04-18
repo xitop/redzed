@@ -16,7 +16,7 @@ Finding components
     returns all :class:`!Memory` blocks.
 
     This is the only way to get access to circuit's triggers. However,
-    there isn't anything to check or control on :class:`Trigger` objects.
+    there is nothing to check or control on :class:`Trigger` objects.
 
 - List all circuit components:
     As noted above, triggers are usually ignored and "all components"

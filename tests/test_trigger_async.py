@@ -4,6 +4,8 @@ Test function calls in triggers.
 
 # pylint: disable=unused-argument
 
+import asyncio
+
 import pytest
 
 import redzed as rz
@@ -82,3 +84,35 @@ async def test_example(circuit):
         test(True, 'on4')
 
     await runtest(tester())
+
+
+async def test_no_undef(circuit):
+    """Test that triggers are not active during initialization."""
+    cnt = 0
+    ma = rz.Memory('a', initial=[rz.InitWait(timeout=5)])
+    mb = rz.Memory('b', initial=[rz.InitWait(timeout=5)])
+
+    def no_undef():
+        nonlocal cnt
+        assert ma.get() is not rz.UNDEF
+        assert mb.get() is not rz.UNDEF
+        cnt += 1
+
+    @rz.trigger
+    def loga(a):
+        no_undef()
+
+    @rz.trigger
+    def logb(b):
+        no_undef()
+
+    async def tester():
+        await circuit.reached_state(rz.CircuitState.INIT_BLOCKS)
+        await asyncio.sleep(0.05)
+        ma.event('store', 1)
+        await asyncio.sleep(0.05)
+        mb.event('store', 2)
+        await asyncio.sleep(0.05)
+
+    await runtest(tester(), immediate=True)
+    assert cnt == 2

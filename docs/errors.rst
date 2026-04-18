@@ -5,33 +5,40 @@ Error handling
 ==============
 
 
-Reporting errors
-================
+Reporting and handling of errors
+================================
 
-1. Typically, when a fatal error occurs in a Redzed related function,
-   it is sufficient to simply raise an exception as usual,
-   because the runner will receive the exception. In reaction it will
-   abort unless the error is deliberately ignored. All such cases are
-   properly documented (:ref:`individual initializers <Initializers>`,
-   :ref:`cleanup functions <6. Shutdown and cleanup>`).
+1. Redzed aborts the runner (see :meth:`run`) when it detects:
 
-2. However - as explained in a later section - exceptions raised
-   in asynchronous tasks affect only the task itself. Please follow
-   the recommendation given there.
+   - an unhandled exception in the supplied code used as:
 
-3. In all other cases, if an abort is desired, :meth:`Circuit.abort` must
-   be called explicitly.
+     - a function associated with a :class:`Trigger` or a :class:`Formula`
+     - an :ref:`FSM hook <Hooks>`
+     - an I/O function (e.g. from :class:`DataPoll` or :class:`OutputFunc`)
 
+     However - as explained :ref:`below <Error checking in asyncio>` - exceptions raised
+     in asynchronous tasks affect only the task itself. Please follow
+     the recommendation given there.
+   - a termination (with or without an exception) of a
+     :ref:`service task or a supporting task <Service tasks vs. supporting tasks>`
+     before shutdown.
+   - a dependency loop. In order to prevent an endless recursion, these
+     conditions are forbidden:
 
-Detecting loops
-===============
+     - when evaluating a formula changes any of its inputs
+     - when event handling in a block generates (directly or indirectly)
+       another event of exactly the same type sent to the same block
 
-Redzed will automatically detect dependency loops and abort the circuit
-runner in order to prevent endless recursion in these cases:
+   - explicit :meth:`Circuit.abort`
 
-- when evaluating a formula changes any of its inputs
-- when event handling in a block causes (directly or indirectly) that
-  another event of exactly the same type is sent to that block
+2. Redzed logs an exception, but otherwise ignores the error in:
+
+   - :ref:`individual initializers <Initializers>`
+   - :ref:`cleanup functions <6. Shutdown and cleanup>`
+   - :ref:`stop functions <Stop functions>`
+
+3. Redzed may raise in :meth:`Block.event`. The caller is responsible
+   for handling the exception.
 
 
 Error checking in asyncio
@@ -60,4 +67,4 @@ If it doesn't suit you, make use of some of these techniques:
   see `loop.set_exception_handler [↗] <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.set_exception_handler>`_
   in asyncio.
 
-And, of course, check the results of terminated tasks.
+And, as always, check the results of terminated tasks.

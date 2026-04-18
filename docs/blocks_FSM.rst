@@ -92,7 +92,7 @@ A new FSM is type created by subclassing the base class.
   - :ref:`state entry and exit actions <State entry and exit actions>`
   - :ref:`conditions for event acceptance <Conditional events>`
   - :ref:`timed state duration setters <Timed state duration>`
-  - :ref:`dynamic state selector <Dynamic state>`
+  - :ref:`dynamic state selectors <Dynamic state>`
 
 
 States, events, transitions
@@ -122,7 +122,7 @@ It cannot become a current state and cannot have enter or exit actions.
 
 Every time a transition to some dynamic state ``"DSTATE"`` should take place,
 a corresponding :ref:`method <Dynamic state>` is called to compute the real
-(i.e. non-dynamic) state to be entered instead. The existence of the
+non-dynamic state to be entered instead. The existence of the
 special :meth:`FSM.select_DSTATE` method makes a state dynamic.
 
 
@@ -172,7 +172,7 @@ The transition table is defined by :attr:`STATES` and :attr:`EVENTS`:
     # event: str
     # states: Sequence[str]|Literal[...]
     # next_state (may be dynamic): str|None
-    [event, states, next_state]
+    (event, states, next_state)
 
   *states* (item 2) define in which states will the *event* (item 1)
   trigger a transition to the *next_state* (item 3).
@@ -211,10 +211,10 @@ The transition table is defined by :attr:`STATES` and :attr:`EVENTS`:
     ('start', ..., 'on'),
     ('start', ['sleep', 'on', 'off'], 'on'),
 
-    ["finish", ..., "off"],     # default rule for 'finish' event and all states except
+    ("finish", ..., "off"),     # default rule for 'finish' event and all states except
                                 # more specific rules for 'not_ready' and 'pause' below
-    ["finish", ["not_ready"], "error"],   # override: rule for state2 -> 'error'
-    ["finish", ["pause"], None],          # override: finish is ignored in 'pause'
+    ("finish", ["not_ready"], "error"),   # override: rule for state2 -> 'error'
+    ("finish", ["pause"], None),          # override: finish is ignored in 'pause'
 
 
 '**_get_config**' monitoring event
@@ -455,13 +455,13 @@ FSM examples
 
   class Timer(redzed.FSM):
       STATES = [
-          ['off', float("inf"), 'on'],
-          ['on', float("inf"), 'off']]
+          ('off', float("inf"), 'on'),
+          ('on', float("inf"), 'off')]
       EVENTS = [
-          ['start', ..., 'on'],
-          ['stop', ..., 'off'],
-          ['toggle', ['on'], 'off'],
-          ['toggle', ['off'], 'on']]
+          ('start', ..., 'on'),
+          ('stop', ..., 'off'),
+          ('toggle', ['on'], 'off'),
+          ('toggle', ['off'], 'on')]
 
       def __init__(self, *args, restartable: bool = True, **kwargs):
           if 't_period' in kwargs:
@@ -492,11 +492,11 @@ to hold the timestamp necessary for the calculation::
       STATES = [
           'off',
           'on',
-          ['afterrun', None, 'off'],
+          ('afterrun', None, 'off'),
       ]
       EVENTS = [
-          ['start', ['off'], 'on'],
-          ['stop', ['on'], 'afterrun'],
+          ('start', ['off'], 'on'),
+          ('stop', ['on'], 'afterrun'),
       ]
 
       def enter_on(self):
@@ -527,11 +527,10 @@ from the :class:`FSM` class.
     The value must be a number of seconds
     or a :ref:`string with time units <Time durations with units>`.
 
-- ``enter_STATE=function``
-- ``exit_STATE=function``
-    (sequence of functions is also accepted)
+- ``enter_STATE=function`` or ``enter_STATE=[function1, function2, ... ]``
+- ``exit_STATE=function`` or ``exit_STATE=[function1, function2, ... ]``
 
-    See: :ref:`State entry and exit actions`
+  See: :ref:`State entry and exit actions`
 
 - ``initial=...``
     This parameter sets the initial FSM state. Optionally, the additional

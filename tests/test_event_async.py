@@ -15,6 +15,20 @@ from .utils import Exc, Grp, runtest
 pytestmark = pytest.mark.usefixtures("task_factories")
 
 
+async def test_ready(circuit):
+    """The circuit is ready when supporting coroutines start."""
+    mem = redzed.Memory("memory", initial=1)
+
+    async def tester():
+        assert mem.get() == 1
+        mem.event('store', 2)
+        circuit.shutdown()
+
+    assert mem.get() is redzed.UNDEF
+    await redzed.run(tester())
+    assert mem.get() == 2
+
+
 async def _init_by_event(circuit, waittime):
     mem = redzed.Memory("memory", initial=redzed.InitWait(0.1))
 

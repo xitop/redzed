@@ -36,7 +36,7 @@ by its type. The type is a name (string) and must a valid Python identifier.
 The event type selects the event handler for the given event. The event
 can carry arbitrary data in the form of ``'name':<value>`` pairs, except when
 the ``<value>`` is equal to the special constant :const:`UNDEF`, the whole
-entry is filtered out.
+item is filtered out.
 
 Blocks react to events by performing some specific action and returning a result.
 For example a :class:`Memory` block accepts a ``'store'`` event, expects
@@ -61,7 +61,7 @@ is just a convention for events with these characteristics:
 .. important::
 
   Due to the absence of side-effects are monitoring events accepted
-  during the shutdown when all other events are rejected
+  even when all other events are rejected
   with the :exc:`CircuitNotReady` exception.
 
 If you are creating an own type of blocks, feel free to use the ``'_get_'`` prefix,

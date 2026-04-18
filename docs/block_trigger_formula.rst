@@ -68,7 +68,7 @@ The *name* must be unique. Such name could be generated if necessary:
 The optional *comment* may be any arbitrary text.
 
 The name and the comment are included in the string representation ``str(block)``
-and also saved as attributes.
+and are also saved as attributes.
 
 
 Internal state and output
@@ -93,11 +93,13 @@ The internal state can be affected by:
 
 The current output value is returned by :meth:`Block.get`.
 Before initialization is the output set to a sentinel value named :const:`UNDEF`.
-The first valid output is obtained from initializers. See the next section.
+The first valid output is a result of a successful initialization, i.e. when an
+initializer produces an initial value and the block sets its internal state
+based on this value. This in turn defines the output value.
 
 
-Initial values
---------------
+Initial value
+-------------
 
 **Parameter**: **initial** (Initializer|Sequence[Initializer]) - block initializer(s)
 
@@ -129,7 +131,7 @@ Triggers
 
   Output changes in sources referenced by the function *func* trigger
   a function call with current output values as function's arguments.
-  The first function call will take place when none of the arguments is :const:`UNDEF`.
+  The initial function call will take place when all blocks are initialized.
   The :ref:`sources are auto-detected <Function parameters in Triggers and Formulas>`
   from the function's signature. The return value of the function
   will be ignored. An exception raised in the function will abort
@@ -142,8 +144,6 @@ Triggers
 
   Create a :class:`Trigger` for the decorated function.
   The function itself is unchanged.
-
----
 
 The two ways to define a trigger are equivalent.
 The class allows to write one-liners::
@@ -181,14 +181,12 @@ There are two ways to define a formula.
   of other circuit blocks or formulas. When any of them changes, the :class:`!Formula`
   block calls the function and the returned value becomes Formula's output value.
 
-  During the circuit initialization, if any of the arguments is still :const:`UNDEF`,
-  the function is not called and the Formula's output remains also set to :const:`UNDEF`.
-  Any exception raised in *func* will abort the :ref:`runner <Circuit runner>`.
-
   The function *func* must be a "pure function". This means its output (return value)
   must be fully determined only by its input (arguments) and there should be no side
   effects to the circuit.
 
+  The initial evaluation of a formula will take place when all blocks are initialized.
+  Any exception raised in *func* will abort the :ref:`runner <Circuit runner>`.
 
 .. decorator:: formula
 
@@ -281,17 +279,16 @@ or block's object. The example below shows both cases.
       return x and y
 
 
-Access to the previous output
------------------------------
+Access to previous output
+-------------------------
 
-A special mode is available in which the :meth:`Block.get` (or :meth:`Formula.get`
+Sometimes it is necessary to compare the current output value with the
+previous one. The difference is often called delta (for numeric values)
+or a rising/falling edge (for logical values). Such use cases are supported
+by a special mode in which the :meth:`Block.get` (or :meth:`Formula.get`
 which is identical) is called with the *with_previous* option set to :const:`True`.
 Tuples of output values ``(current, previous)`` are then passed to the external
 function instead of just the current value.
-
-This feature supports use cases where it is necessary to compare the output with the
-previous output value. The difference is often called delta (for numeric values)
-or a rising/falling edge (for logical values).
 
 Triggers and Formulas can enable this mode by including argument ``_with_previous=True``
 (note the leading underscore) in the function definition, preferably at the end of argument list.

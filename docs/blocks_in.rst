@@ -63,7 +63,7 @@ The most common data entry block is :class:`!Memory`.
     The default duration in seconds before the stored value expires.
     The duration can be overridden on a per-event basis.
     Enter :const:`None` for no default duration. Without a default,
-    every store event *must* explicitly specify the duration.
+    every store event *must* specify the duration.
 
   :param object expired:
     A value to be applied after expiration. Make sure it passes the validator.

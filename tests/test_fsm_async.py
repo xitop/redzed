@@ -318,3 +318,66 @@ async def test_duration_error_init(circuit):
 
     with Grp(Exc(RuntimeError, match="duration for state 'on'")):
         await runtest(sleep=1)
+
+
+@pytest.mark.parametrize("raise_exc", [False, True])
+async def test_async_init(circuit, raise_exc):
+    """Test an example from docs"""
+
+    enable_blk = redzed.Memory('enable', validator=bool, initial=redzed.InitWait(timeout=10))
+
+    class Auto(redzed.FSM):
+        STATES = ['off', 'on']
+        EVENTS = [('start', ['off'], 'on')]
+
+        def cond_start(self):
+            enabled = enable_blk.get()
+            if raise_exc and enabled is redzed.UNDEF:
+                raise redzed.CircuitNotReady
+            return enable_blk.get()
+
+    auto_blk = Auto('auto')
+
+    async def tester():
+        await circuit.reached_state('INIT_BLOCKS')
+        if raise_exc:
+            with pytest.raises(redzed.CircuitNotReady):
+                auto_blk.event('start')
+        else:
+            assert auto_blk.event('start') is False
+        assert enable_blk.get() is redzed.UNDEF
+
+        enable_blk.event('store', False)
+        assert auto_blk.event('start') is False
+        assert auto_blk.get() == 'off'
+
+        enable_blk.event('store', True)
+        assert auto_blk.event('start') is True
+        assert auto_blk.get() == 'on'
+
+    await runtest(tester(), immediate=True)
+
+
+async def test_no_undef(circuit):
+    """Test that hooks are not active during initialization."""
+    log = []
+
+    class OffOn(redzed.FSM):
+        STATES = ['off', 'on']
+        EVENTS = [('start', ['off'], 'on')]
+        def enter_off(self):
+            log.append(mem.get())
+
+    fsm = OffOn('fsm1')
+    mem = redzed.Memory('mem1', initial=[redzed.InitWait(timeout=5)])
+
+    async def tester():
+        await circuit.reached_state('INIT_BLOCKS')
+        assert fsm.get() == 'off'
+        assert mem.get() is redzed.UNDEF
+        await asyncio.sleep(0.05)
+        mem.event('store', 7)
+        await asyncio.sleep(0.05)
+
+    await runtest(tester(), immediate=True)
+    assert log == [7]

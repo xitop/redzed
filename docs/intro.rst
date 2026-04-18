@@ -12,7 +12,7 @@ i.e. applications that control outputs according to input values,
 system’s internal state, date and time. It is free and open source.
 
 The logic of the automated system is defined by a so-called **circuit**
-consisting of circuit components. This modularity allows to modify
+consisting of circuit **components**. This modularity allows to modify
 the logic easily. Several components for general use are already included
 making the development more productive.
 
@@ -58,7 +58,7 @@ This tiny program prints "ding/dong" (the bell sound) in 1 second pace::
 
 The circuit consists of one :class:`Timer` type logical block
 named ``'clk'`` and one :class:`Trigger` reacting to Timer's output changes.
-The Trigger invokes the :func:`!output_print` function.
+The trigger invokes the :func:`!output_print` function.
 
 ----
 

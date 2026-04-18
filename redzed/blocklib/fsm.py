@@ -634,6 +634,10 @@ class FSM(redzed.Block):
 
     def _goto(self, state: str) -> None:
         """Unconditionally go to 'state'. To be used by the FSM itself only!"""
+        if self.circuit.is_shut_down():
+            # this should be unreachable, because the timer should have been cancelled
+            # during shutdown, but just for the case some kind of a race is possible
+            return
         self._send_synthetic_event(f"Goto:{state}")
         if self.rz_save_flags & redzed.SaveFlags.EVENT:
             self.circuit.save_persistent_state(self)

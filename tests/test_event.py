@@ -2,7 +2,7 @@
 Test Block events.
 """
 
-# pylint: disable=missing-class-docstring, protected-access, unused-argument
+# pylint: disable=missing-class-docstring, protected-access
 
 import pytest
 
