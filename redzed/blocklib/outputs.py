@@ -34,7 +34,7 @@ class OutputFunc(redzed.Block):
         self._shutdown = False
         if stop_value is not redzed.UNDEF:
             @redzed.stop_function
-            def stop_function_():
+            def stop_function_() -> None:
                 self._event_put({'evalue': stop_value})
             stop_function_.__qualname__ += self.name
             stop_function_.__name__ += self.name
@@ -248,7 +248,7 @@ class _Buffer(_Validate, redzed.Block):
         if stop_value is not redzed.UNDEF:
             stop_value = self._validate(stop_value)
             @redzed.stop_function
-            def stop_function_():
+            def stop_function_() -> None:
                 self.rz_put_value(stop_value)
             stop_function_.__qualname__ += self.name
             stop_function_.__name__ += self.name

@@ -7,11 +7,11 @@ Project home: https://github.com/xitop/redzed/
 """
 from __future__ import annotations
 
-__all__ = ['Block', 'CircuitNotReady', 'CircuitShutDown', 'EventData', 'UnknownEvent']
+__all__ = ['Block', 'CircuitNotReady', 'EventData', 'UnknownEvent']
 
 import asyncio
-from collections.abc import Callable
 import logging
+import inspect
 import typing as t
 
 from .base_block import BlockOrFormula
@@ -36,10 +36,9 @@ class UnknownEvent(Exception):
 class CircuitNotReady(RuntimeError):
     """Cannot process an event."""
 
-CircuitShutDown = CircuitNotReady       # old name
-
 
 _INIT_TYPES: t.TypeAlias = initializers.SyncInitializer | initializers.AsyncInitializer
+_PERSISTENCE_METHODS = ['rz_export_state', 'rz_restore_state']
 
 
 class Block(BlockOrFormula):
@@ -50,9 +49,8 @@ class Block(BlockOrFormula):
     to them. They have one output depending solely on the state.
     """
 
-    _edt_handlers: dict[str, Callable[[t.Self, EventData], object]]
-                                # event handling methods _event_NAME
-    RZ_PERSISTENCE: bool        # class attr: is persistent state supported?
+    _event_handlers: set[str]   # event types with dedicated handlers
+    RZ_PERSISTENCE: bool        # computed class attr: is persistent state supported?
 
 
     def __init_subclass__(cls, *args, **kwargs) -> None:
@@ -62,19 +60,13 @@ class Block(BlockOrFormula):
         Add flag if persistent state is supported.
         """
         super().__init_subclass__(*args, **kwargs)
-        cls._edt_handlers = {}
-        for mro in cls.__mro__:
-            if issubclass(mro, Block):
-                for mname, method in vars(mro).items():
-                    if not callable(method):
-                        continue    # it's a plain attr
-                    # When multiple handlers exist, save only the first one, because it has
-                    # the highest rank in the MRO hierarchy.
-                    if len(mname) > 7 and mname.startswith('_event_'):
-                        cls._edt_handlers.setdefault(mname[7:], method)
+        cls._event_handlers = {
+            method_name[7:] for method_name, _ in inspect.getmembers(cls, callable)
+            if len(method_name) > 7 and method_name.startswith('_event_')
+        }
 
-        cls.RZ_PERSISTENCE = (callable(getattr(cls, 'rz_export_state', None))
-            and callable(getattr(cls, 'rz_restore_state', None)))
+        cls.RZ_PERSISTENCE = all(
+            callable(getattr(cls, meth, None)) for meth in _PERSISTENCE_METHODS)
 
     def __init__(
             self, *args,
@@ -277,12 +269,10 @@ class Block(BlockOrFormula):
                 #   - some blocks need an event for their initialization
                 #   - this event could have arrived during initialization by chance or race
                 self.log_debug2("Pending event, initializing now")
-                self.circuit.init_block_sync(self)
-            handler = type(self)._edt_handlers.get(etype)
+                self.circuit.init_block_sync(self, quick_init=True)
             try:
-                if handler:
-                    # handler is an unbound method => must add 'self'
-                    retval = handler(self, edata)
+                if etype in type(self)._event_handlers:
+                    retval = getattr(self, "_event_" + etype)(edata)
                 else:
                     retval = self._default_event_handler(etype, edata)
             except (UnknownEvent, ValidationError) as err:

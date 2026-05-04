@@ -500,8 +500,8 @@ def test_dispatch_table(circuit):
             pass
 
     eh = EvHandler('ctx')
-    edt_keys = {name for name in eh._edt_handlers if not name.startswith("_get_")}
-    assert edt_keys == {'abc'}
+    etypes = {name for name in eh._event_handlers if not name.startswith("_get_")}
+    assert etypes == {'abc'}
 
 
 def test_enter_exit(circuit):

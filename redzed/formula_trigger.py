@@ -18,7 +18,7 @@ from . import base_block
 from . import block
 from . import circuit
 from .debug import get_debug_level
-from .defs import UNDEF
+from .defs import CircuitState, UNDEF
 from .utils import func_call_string
 
 _logger = logging.getLogger(__package__)
@@ -90,7 +90,7 @@ class _ExtFunction:
             blk.get(with_previous=self._with_prev)  # type: ignore[union-attr]
             for blk in self._inputs]
         owner = self._owner
-        if owner.circuit.get_state() < circuit.CircuitState.RUNNING:
+        if owner.circuit.get_state() < CircuitState.RUNNING:
             if self._with_prev:
                 current = [v[0] for v in values]    # type: ignore[index]
             else:

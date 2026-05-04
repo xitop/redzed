@@ -31,8 +31,9 @@ Circuit API
   Circuit state symbols.
 
   These are integer enums. Their value may only increase during the circuit runner's
-  :ref:`life-cycle <Runner's life-cycle>`. Listed in order from the initial state
-  (smallest value) to the final state (highest value):
+  life cycle. A list of states ordered from the initial state (smallest value)
+  to the final state (highest value) is given below. Full descriptions
+  can be found :ref:`here <Runner's life-cycle>`.
 
   .. attribute:: UNDER_CONSTRUCTION
 
@@ -41,12 +42,13 @@ Circuit API
   .. attribute:: INIT_CIRCUIT
 
     The runner has been started and initializes itself. No circuit modification
-    is allowed from this moment.
+    is allowed from this moment. Despite the name of the next state,
+    initialization of blocks begins already in this state.
 
   .. attribute:: INIT_BLOCKS
 
-    The runner is now initializing blocks and triggers. Blocks start to accept
-    events.
+    The runner is completing initialization of blocks and starting triggers.
+    Blocks start to accept events.
 
   .. attribute:: RUNNING
 

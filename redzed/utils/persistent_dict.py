@@ -36,7 +36,7 @@ SETTINGS_PRETTY = {
     }
 
 
-class PersistentDict(collections.UserDict):
+class PersistentDict(collections.UserDict[str, object]):
     # need to subclass the UserDict, not the dict.
     # http://stackoverflow.com/questions/34380356/how-to-detect-dict-modification
     """
@@ -150,7 +150,7 @@ class PersistentDict(collections.UserDict):
             self._flush_task = asyncio.create_task(
                 self._flush_service(), name="PersistentDict sync task")
 
-    def _run_error_callback(self, exc: Exception):
+    def _run_error_callback(self, exc: Exception) -> None:
         if self._error_cb is None:
             return
         exc.add_note(f"Error occurred in {type(self).__name__}")
@@ -206,7 +206,7 @@ class PersistentDict(collections.UserDict):
         self._run_error_callback(exc)
         del exc         # break reference cycle
 
-    async def _flush_service(self):
+    async def _flush_service(self) -> t.NoReturn:
         """Save data to file after each modification."""
         modified = self._modified
         assert modified is not None

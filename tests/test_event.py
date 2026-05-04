@@ -108,12 +108,7 @@ def test_reserved_edata_name(circuit):
 
 
 def test_event_handlers(circuit):
-    """Test event dispatch table."""
-    class B0:
-        # not defined as a Block subclass -> ignored
-        def _event_X(self, *_args, **_kwargs):
-            return
-
+    """Test event handlers table."""
     class B1(redzed.Block):
         def _event_add(self, edata):
             self._set_output(self.get() + edata['evalue'])
@@ -121,7 +116,7 @@ def test_event_handlers(circuit):
         def _event_sub(self, edata):
             self._set_output(self.get() - edata['evalue'])
 
-    class B2(B0, B1):
+    class B2(B1):
         def _event_div(self, edata):
             self._set_output(self.get() / edata['evalue'])
 
@@ -136,8 +131,8 @@ def test_event_handlers(circuit):
     addsub = B2('addsub')
     mini_init(circuit)
 
-    edt_keys = {name for name in addsub._edt_handlers if not name.startswith("_get_")}
-    assert edt_keys == {'add', 'sub', 'div'}
+    etypes = {name for name in addsub._event_handlers if not name.startswith("_get_")}
+    assert etypes == {'add', 'sub', 'div'}
 
     with pytest.raises(redzed.UnknownEvent):
         addsub.event('X')

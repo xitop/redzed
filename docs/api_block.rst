@@ -230,15 +230,12 @@ Block's :ref:`state persistence <Persistent state>` support requires two methods
 
   Optional. Return the entire internal state.
   The result of the call is undefined when the block hasn't been
-  initialized.
+  initialized. See also the ":ref:`_get_state`" monitoring event
+  which is based on this method.
 
   When implementing this method, take into consideration how the
   returned state will be serialized for :ref:`storage <3. Persistent storage>`.
   If not sure, prefer JSON serializable data structures.
-
-  This method is considered low-level and the state should be queried with
-  the ":ref:`_get_state`" monitoring event, because the event handler makes
-  necessary checks before calling the :meth:`!rz_export_state`.
 
   .. tip::
 

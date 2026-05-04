@@ -51,7 +51,7 @@ class Counter(redzed.Block):
 
     rz_init = _setmod
 
-    def rz_export_state(self):
+    def rz_export_state(self) -> object:
         return self.get()
 
     rz_restore_state = _setmod

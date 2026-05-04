@@ -123,10 +123,10 @@ async def test_rest_time_after_error1(circuit):
         (0, 'start i1'),
         (0, 'error!'),
         (0, '--stop--'),
-        # 100 event put i2 -> CircuitShutDown error
+        # 100 event put i2 -> CircuitNotReady error
         (120, 'END')
         ]
-    with Grp(Exc(ZeroDivisionError), Exc(redzed.CircuitShutDown, match="shut down")):
+    with Grp(Exc(ZeroDivisionError), Exc(redzed.CircuitNotReady, match="shut down")):
         await output_ctrl(circuit, test_error=True, rest_time=0.12, log=LOG)
 
 

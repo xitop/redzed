@@ -70,24 +70,25 @@ Runner's life-cycle
 -------------------
 
 Find below a list of successive steps taken by the runner together
-with the corresponding state changes.
+with the corresponding states.
 
 1. state :attr:`CircuitState.INIT_CIRCUIT`:
 
    a. initialize the circuit
-   #. initialize blocks that use only synchronous initializers
+   #. initialize blocks synchronously (part 1/2); postpone the utilization
+      of asynchronous initializers to the next state
 
 #. state :attr:`CircuitState.INIT_BLOCKS`:
 
    a. allow events
    #. start :ref:`supporting coroutines <Supporting tasks>`
       as individual tasks in a :abbr:`task group (asyncio.TaskGroup)`
-   #. initialize blocks with asynchronous initializers; async block initialization
+   #. complete block initialization (part 2/2); async block initialization
       routines of distinct blocks are invoked concurrently.
       Please read the next section about specifics of
       :ref:`event handling during this phase <Event handling during async initialization>`
    #. enable triggers; run their functions for the first time
-   #. start blocks` activities
+   #. start blocks' activities
 
 #. state :attr:`CircuitState.RUNNING`:
 
@@ -136,8 +137,8 @@ events.
 Issue 1: destination block is not initialized
 +++++++++++++++++++++++++++++++++++++++++++++
 
-When an event arrives to an uninitialized block, the block will first try
-to initialize itself and then to handle the event. The event often
+When a non-monitoring event arrives to an uninitialized block, the block will
+first try to initialize itself and then to handle the event. The event often
 fully initializes the block. The exact procedure is:
 
 1. call initializers specified by the *initial* argument

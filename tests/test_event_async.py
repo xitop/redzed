@@ -117,3 +117,28 @@ async def test_no_get_state(circuit):
             tb1.event('_get_state')
 
     await runtest(tester())
+
+
+async def test_handler_types(circuit):
+    """Test different handler method types."""
+
+    class E3(redzed.Memory):
+        def _event_R(self, edata):
+            return edata['evalue'] + 1
+
+        @classmethod
+        def _event_C(cls, edata):
+            return edata['evalue'] + 2
+
+        @staticmethod
+        def _event_S(edata):
+            return edata['evalue'] + 3
+
+    mem = E3("three_handlers", initial=0)
+
+    async def tester():
+        assert mem.event('R', 10) == 11
+        assert mem.event('C', 10) == 12
+        assert mem.event('S', 10) == 13
+
+    await runtest(tester())

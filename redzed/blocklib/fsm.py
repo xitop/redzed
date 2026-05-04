@@ -38,23 +38,6 @@ def _loop_to_unixtime(looptime: float) -> float:
 
 _ALLOWED_KINDS = [inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD]
 
-@functools.cache
-def _hook_args(func: Callable[..., object]) -> int:
-    """Check if *func* takes 0 or 1 argument."""
-    params = inspect.signature(func).parameters
-    plen = len(params)
-    if plen > 1 or plen == 1 and next(iter(params.values())).kind not in _ALLOWED_KINDS:
-        raise TypeError(
-            f"Function {func.__name__} is not usable as an FSM hook "
-            + "(incompatible call signature)")
-    return plen
-
-
-_HookType: t.TypeAlias = t.Literal['cond', 'duration', 'enter', 'exit', 'select']
-# Self type cannot be used in type alias target
-_HookMethodType: t.TypeAlias = Callable[["FSM", str], object] \
-    | Callable[["FSM", str, redzed.EventData], object]
-
 
 class FSM(redzed.Block):
     """
@@ -64,22 +47,19 @@ class FSM(redzed.Block):
     # subclasses must define:
     STATES: Sequence[str|Sequence]
         # each state: non-timed: state
-        #             or timed: [state, duration, next_state]
+        #             or timed: (state, duration, next_state)
     EVENTS: Sequence[Sequence]
-        # each item: [event, [state1, state2, ..., stateN], next_state]
-        #        or: [event, ..., next_state] <- literal ellipsis
+        # each item: (event, [state1, state2, ..., stateN], next_state)
+        #        or: (event, ..., next_state) <-- literal ellipsis
     # --- and redzed will translate that to: ---
     _ct_default_state: str
         # the default initial state (first item of STATES)
     _ct_duration: dict[str, float]
         # {timed_state: default_duration_in_seconds}
-    _ct_dynamic_states: dict[str, _HookMethodType]
-        # {dynamic_state: selector}
+    _ct_dynamic_states: set[str]
+        # all dynamic states
     _ct_events: set[str]
         # all valid events
-    _ct_methods: dict[_HookType, dict[str, _HookMethodType]]
-        # summary of cond_EVENT, duration_TSTATE, enter_STATE,
-        # exit_STATE and select_DSTATE methods
     _ct_valid_names: dict[str, Iterable[str]]
         # helper for parsing
     _ct_states: set[str]
@@ -90,6 +70,19 @@ class FSM(redzed.Block):
     _ct_transition: dict[tuple[str, str|None], str|None]
         # the transition table - higher priority: {(event, state): next_state}
         # the transition table - lower priority: {(event, None): next_state}
+
+    # could be a separate function, but we want the cache to be a part of the class
+    @staticmethod
+    @functools.cache
+    def _hook_args(func: Callable[..., object]) -> int:
+        """Check if *func* takes 0 or 1 argument."""
+        params = inspect.signature(func).parameters
+        plen = len(params)
+        if plen > 1 or plen == 1 and next(iter(params.values())).kind not in _ALLOWED_KINDS:
+            raise TypeError(
+                f"Function {func.__name__} is not usable as an FSM hook "
+                + "(incompatible call signature)")
+        return plen
 
     @classmethod
     def _check_state(cls, state: object, dynamic_ok: bool = False) -> None:
@@ -125,18 +118,18 @@ class FSM(redzed.Block):
         """
 
         # dynamic pseudo-states
-        cls._ct_dynamic_states = {}
+        cls._ct_dynamic_states = set()
         cls_members = []
-        for method_name, method in inspect.getmembers(cls):
-            if method_name.startswith('_') or not callable(method):
+        for method_name, _ in inspect.getmembers(cls, callable):
+            if '_' not in method_name or method_name.startswith('_'):
                 continue
             if not method_name.startswith('select_'):
                 # save for later
-                cls_members.append((method_name, method))
+                cls_members.append(method_name)
                 continue
             dstate = method_name[7:]    # remove 'select_'
             check_identifier(dstate, "dynamic state name")
-            cls._ct_dynamic_states[dstate] = method
+            cls._ct_dynamic_states.add(dstate)
 
         # states
         if not is_multiple(cls.STATES) or not cls.STATES:
@@ -155,6 +148,7 @@ class FSM(redzed.Block):
                 else:
                     state = entry
                 check_identifier(state, "FSM state name")
+                assert isinstance(state, str)   # @mypy
                 if i == 1:
                     cls._ct_default_state = state
                 elif state in cls._ct_states:
@@ -195,7 +189,7 @@ class FSM(redzed.Block):
             try:
                 j = 1
                 check_identifier(event, "FSM event name")
-                if event in cls._edt_handlers:
+                if event in cls._event_handlers:
                     raise ValueError(
                         f"Ambiguous event '{event}': "
                         + "the name is used for both FSM and Block event")
@@ -215,6 +209,7 @@ class FSM(redzed.Block):
                             + f"got {from_states!r}{hint}")
                     for fstate in from_states:
                         cls._check_state(fstate)
+                        assert isinstance(fstate, str)  # @mypy
                         cls._add_transition(event, fstate, next_state)
                 j = 3
                 if next_state is not None:
@@ -226,7 +221,7 @@ class FSM(redzed.Block):
                 raise
 
         # check for unreachable dynamic states
-        if (unreachable := cls._ct_dynamic_states.keys() - next_states):
+        if (unreachable := cls._ct_dynamic_states - next_states):
             dstate = next(iter(unreachable))
             raise ValueError(
                 f"Method 'select_{dstate}' is not valid; '{dstate}' is not a reachable state")
@@ -235,43 +230,29 @@ class FSM(redzed.Block):
         # and suffix is listed in the corresponding dict value
         cls._ct_valid_names = {
             'cond': cls._ct_events,             # method or arg
-            'duration': cls._ct_timed_states,   # method
+            'duration': cls._ct_timed_states,   # method only
             'enter': cls._ct_states,            # method or arg
             'exit': cls._ct_states,             # method or arg
-            't': cls._ct_timed_states,          # arg
+            't': cls._ct_timed_states,          # arg only
             # 'select' is processed separately
         }
 
-        # class hooks
-        cls._ct_methods = {
-            'cond': {},             # data format: {EVENT: cond_EVENT method}
-            'duration': {},         # {TSTATE: duration_TSTATE method}
-            'enter': {},            # {STATE: enter_STATE method}
-            'exit': {},             # {STATE: exit_STATE method}
-            'select': cls._ct_dynamic_states,  # {DSTATE: select_DSTATE method}
-            }
-        for method_name, method in cls_members:
-            try:
-                # ValueError in assignment if split into two pieces fails:
-                hook_type, name = method_name.split('_', 1)
-                hook_dict = cls._ct_methods[hook_type]      # type: ignore[index]
-            except (ValueError, KeyError):
-                continue
-            if name in cls._ct_valid_names[hook_type]:
-                hook_dict[name] = method
-            else:
+        # check class hooks
+        for method_name in cls_members:
+            hook_type, name = method_name.split('_', 1)
+            valid_names = cls._ct_valid_names.get(hook_type)
+            if valid_names is not None and name not in valid_names:
                 exc = ValueError(
                     f"Method name '{method_name}' is not valid; "
                     + f"please check the '{name}' symbol")
-                name_list = ', '.join(
-                    f"'{hook_type}_{n}'" for n in cls._ct_valid_names[hook_type])
+                name_list = ', '.join(f"'{hook_type}_{n}'" for n in valid_names)
                 exc.add_note(f"Valid are: {name_list}")
                 raise exc
 
     def __init_subclass__(cls, *args, **kwargs) -> None:
         """Build control tables."""
         # call super().__init_subclass__ first, we will then check for possible
-        # event name clashes with the Block._edt_handlers
+        # FSM event name clashes with existing regular events
         super().__init_subclass__(*args, **kwargs)
         if not all(hasattr(cls, table) for table in ['STATES', 'EVENTS']):
             raise TypeError("An FSM requires two control tables: STATES and EVENTS")
@@ -338,12 +319,6 @@ class FSM(redzed.Block):
         self._edata: Mapping[str, t.Any]|None = None
             # read-only data of the currently processed event
 
-    # DEPRECATED
-    @property
-    def state(self) -> str|redzed.UndefType:
-        """Return the FSM state (string) or UNDEF if not initialized."""
-        return self._state
-
     def fsm_state(self) -> str|redzed.UndefType:
         """Return the FSM state (string) or UNDEF if not initialized."""
         return self._state
@@ -400,7 +375,16 @@ class FSM(redzed.Block):
         """Set the initial FSM state."""
         # Do not call self.event() for initialization.
         # It would try to initialize before processing the event.
-        init_state, init_sdata = init_value if is_multiple(init_value) else (init_value, None)
+        if is_multiple(init_value):
+            init_state, init_sdata = init_value
+            # apply both (state and sdata) or none
+            if not isinstance(init_sdata, dict):
+                raise TypeError(
+                    f"Initial 'sdata' is not a dict, but {type(init_sdata).__name__}")
+            if not all(isinstance(key, str) for key in init_sdata):
+                raise ValueError("Initial 'sdata' rejected, because not all keys are strings")
+        else:
+            init_state, init_sdata = init_value, None
         self._check_state(init_state)
         assert isinstance(init_state, str)  # @mypy
         self.log_debug1("initial state: %s", init_state)
@@ -483,7 +467,10 @@ class FSM(redzed.Block):
             self._active_timer = None
 
     def _run_hooks(
-            self, hook_type: _HookType, name: str, default: object = redzed.UNDEF
+            self,
+            hook_type: t.Literal['cond', 'duration', 'enter', 'exit', 'select'],
+            name: str,
+            default: object = redzed.UNDEF
             ) -> object:
         """
         Call hooks of given *hook_type* for given state/event *name*.
@@ -492,20 +479,18 @@ class FSM(redzed.Block):
         if such method doesn't exist. Results of hooks specified by
         an argument are ignored.
         """
-        if (mhook := type(self)._ct_methods[hook_type].get(name)) is not None:
-            self.log_debug2("Calling hook (class method) '%s_%s'", hook_type, name)
-            # pylint: disable-next=unnecessary-dunder-call
-            hook = mhook.__get__(self, type(self))
-            retval = hook() if _hook_args(hook) == 0 else hook(self._edata)
-        else:
+        if (hook := getattr(self, f"{hook_type}_{name}", None)) is None or not callable(hook):
             retval = default
+        else:
+            # pylint: disable-next=not-callable
+            retval = hook() if self._hook_args(hook) == 0 else hook(self._edata)
         if (instance_hooks := self._instance_hooks.get(hook_type)) is not None:
             if (hooks := instance_hooks.get(name)) is not None:
                 self.log_debug2(
                     "Calling %d hook(s) (external) '%s_%s'", len(hooks), hook_type, name)
                 for hook in hooks:
                     # pylint: disable-next=expression-not-assigned
-                    hook() if _hook_args(hook) == 0 else hook(self._edata)
+                    hook() if self._hook_args(hook) == 0 else hook(self._edata)
         return retval
 
     def _event__get_config(self, _edata: redzed.EventData) -> dict[str, object]:

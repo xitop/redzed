@@ -11,6 +11,7 @@ import logging
 import os
 
 from . import circuit
+from .defs import CircuitState
 
 __all__ = ['get_debug_level', 'set_debug_level']
 
@@ -67,12 +68,12 @@ class _DebugLevel:
 _debug_level = _DebugLevel()
 
 
-def get_debug_level():
+def get_debug_level() -> int:
     """Get the debug level."""
     return _debug_level.level
 
 
-def set_debug_level(level):
+def set_debug_level(level: int) -> None:
     """
     Set the debug level.
 
@@ -81,7 +82,7 @@ def set_debug_level(level):
     """
     _debug_level.level = level
     if circuit.get_circuit().get_state() in [
-            circuit.CircuitState.UNDER_CONSTRUCTION, circuit.CircuitState.CLOSED]:
+            CircuitState.UNDER_CONSTRUCTION, CircuitState.CLOSED]:
         return
     if level > 0:
         if not _logger.hasHandlers():

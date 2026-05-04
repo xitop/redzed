@@ -26,7 +26,7 @@ def check_identifier(name: object, msg_prefix: str) -> None:
         raise ValueError(f"{msg_prefix} must be a valid identifier, got '{name}'")
 
 
-def is_multiple(arg: object) -> t.TypeGuard[Sequence]:
+def is_multiple(arg: object) -> t.TypeGuard[Sequence[object]]:
     """
     Check if *arg* specifies multiple ordered items.
 
@@ -54,6 +54,7 @@ def func_name(func: Callable[..., object]) -> str:
     if not callable(func):
         raise TypeError(f"{func!r} is not callable")
     if (name := getattr(func, '__name__', None)) is not None:
+        assert isinstance(name, str)    # @mypy
         return name
     # callable objects with __call__ do not have a __name__
     if not isinstance(func, type) and (hasattr(ftype := type(func), '__call__')):

@@ -118,5 +118,5 @@ async def test_stop_value(circuit, stop_function):
     await runtest(tester())
 
     assert saved_arg == 99
-    with Exc(redzed.CircuitShutDown, match="has been shut down"):
+    with Exc(redzed.CircuitNotReady, match="has been shut down"):
         out.event('put', 0)

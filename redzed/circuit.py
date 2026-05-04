@@ -77,7 +77,7 @@ def _name_to_block(name: str) -> Block | Formula:
         raise KeyError(f"No block or formula named '{name}' found") from None
 
 
-def send_event(name: str, etype: str, /, evalue: object = UNDEF, **edata) -> object:
+def send_event(name: str, etype: str, /, evalue: object = UNDEF, **edata: object) -> object:
     """Send event to a block given by name."""
     return _name_to_block(name).event(etype, evalue, **edata)   # type: ignore[union-attr]
 
@@ -375,8 +375,6 @@ class Circuit:
 
         Run sync initializers immediately. Yield async initializers
         for further processing.
-
-        Persistent state is handled elsewhere.
         """
         for initializer in blk.rz_initializers:
             if blk.is_initialized():
@@ -392,18 +390,30 @@ class Circuit:
             blk.log_debug2("Calling the built-in default initializer")
             blk.rz_init_default()
 
-    def init_block_sync(self, blk: Block) -> None:
-        """Initialize a Block excluding async initializers."""
-        for _ in self._init_block_core(blk):
-            pass
+    def init_block_sync(self, blk: Block, quick_init: bool = False) -> bool:
+        """
+        Initialize a Block excluding async initializers.
 
-    async def init_block_all(self, blk: Block) -> None:
-        """Initialize a Block including async initializers."""
-        for initializer in self._init_block_core(blk):
+        quick_init=False - stop at first async initializer, this make
+                           a second initialization round necessary
+        quick_init=True - ignore async initializers and run all sync
+                          initializers in a single step
+
+        Return True if completed without being stopped
+        by an async initializer.
+        """
+        for _ in self._init_block_core(blk):
+            if not quick_init:
+                return False
+        return True
+
+    async def init_block_full(self, blk: Block) -> None:
+        """Initialize a Block using all (async and sync) initializers."""
+        for async_initializer in self._init_block_core(blk):
             task = asyncio.create_task(
-                initializer.async_apply_to(blk),
-                name=f"initializer {type(initializer).__name__} for block '{blk.name}'")
-            blk.rz_unset_initializer(initializer)
+                async_initializer.async_apply_to(blk),
+                name=f"initializer {type(async_initializer).__name__} for block '{blk.name}'")
+            blk.rz_unset_initializer(async_initializer)
             blk.rz_set_inittask(task)
             try:
                 await task
@@ -420,26 +430,21 @@ class Circuit:
         """
         # Init from value provided by initializers (specified with initial=... or built-in)
         uninitialized = [blk for blk in blocks if not blk.is_initialized()]
-        sync_blocks: list[Block] = []
-        async_blocks: list[Block] = []
-        for blk in uninitialized:
-            async_init = any(isinstance(init, AsyncInitializer) for init in blk.rz_initializers)
-            (async_blocks if async_init else sync_blocks).append(blk)
-        if sync_blocks:
-            self._log_debug2_blocks(
-                "Initializing blocks having sync initializers only", sync_blocks)
-            for blk in sync_blocks:
-                self.init_block_sync(blk)
+        async_blocks = []
+        if uninitialized:
+            self._log_debug2_blocks("Initializing blocks - sync only", uninitialized)
+            for blk in uninitialized:
+                if not self.init_block_sync(blk):
+                    async_blocks.append(blk)
 
         self._set_state(CircuitState.INIT_BLOCKS)
         await asyncio.sleep(0)
 
         if async_blocks:
-            self._log_debug2_blocks(
-                "Initializing blocks having some async initializers", async_blocks)
+            self._log_debug2_blocks("Initializing blocks - async+sync", async_blocks)
             async with asyncio.TaskGroup() as tg:
                 for blk in async_blocks:
-                    tg.create_task(self.init_block_all(blk))
+                    tg.create_task(self.init_block_full(blk))
         # final check
         for blk in blocks:
             if not blk.is_initialized():
@@ -449,7 +454,6 @@ class Circuit:
             if not frm.is_initialized():
                 raise RuntimeError(
                     f"Formula '{frm.name}' hasn't been initialized (dependency loop?)")
-
 
     def save_persistent_state(self, blk: Block, now: float|None = None) -> None:
         """
@@ -592,7 +596,6 @@ class Circuit:
             for close in close_blocks:
                 with error_debug(close, suppress_error=True):
                     close.rz_post_stop()
-
 
     async def _runner_core(self) -> t.NoReturn:
         """

@@ -381,3 +381,48 @@ async def test_no_undef(circuit):
 
     await runtest(tester(), immediate=True)
     assert log == [7]
+
+
+async def test_hook_types(circuit):
+    """Test different hook method types."""
+    log = []
+
+    class _OffOn(redzed.FSM):
+        STATES = ['off', 'on']
+        EVENTS = [
+            ('start', ['off'], 'on'),
+            ('stop',  ['on'], 'off')
+            ]
+
+    class Hook1(_OffOn):
+        def enter_on(self):
+            log.append('on')
+        def exit_on(self, edata):
+            log.append(edata['key'])
+
+    class Hook2(_OffOn):
+        @classmethod
+        def enter_on(cls):
+            log.append('on')
+        @classmethod
+        def exit_on(cls, edata):
+            log.append(edata['key'])
+
+    class Hook3(_OffOn):
+        @staticmethod
+        def enter_on():
+            log.append('on')
+        @staticmethod
+        def exit_on(edata):
+            log.append(edata['key'])
+
+    fsms = [Hook1('regular'), Hook2('class'), Hook3('static')]
+
+    async def tester():
+        for fsm in fsms:
+            log.clear()
+            fsm.event('start')
+            fsm.event('stop', key=8)
+            assert log == ['on', 8]
+
+    await runtest(tester())

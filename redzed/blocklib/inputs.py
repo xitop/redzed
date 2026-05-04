@@ -64,7 +64,7 @@ class MemoryExp(_Validate, FSM):
         ('store', ..., 'store_handler')
         ]
 
-    def cond_store(self, edata):
+    def cond_store(self, edata: redzed.EventData):
         evalue = edata['evalue']
         try:
             validated = self._validate(evalue)
@@ -75,7 +75,7 @@ class MemoryExp(_Validate, FSM):
         self.sdata['memory'] = validated
         return True
 
-    def select_store_handler(self):
+    def select_store_handler(self) -> str:
         return 'expired' if self.sdata['memory'] == self._expired else 'valid'
 
     def enter_expired(self) -> None:

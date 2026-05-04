@@ -44,8 +44,8 @@ Let's start with a simple example::
   class Turnstile(redzed.FSM):
       STATES = ['locked', 'unlocked']
       EVENTS = [
-          ['coin', ['locked'], 'unlocked'],
-          ['push', ['unlocked'], 'locked'],
+          ('coin', ['locked'], 'unlocked'),
+          ('push', ['unlocked'], 'locked'),
       ]
 
   t1 = Turnstile('t1', comment="example turnstile #1")
@@ -392,7 +392,7 @@ The actions may be defined as:
 - external functions defined in an instance with a keyword argument
   (e.g. ``enter_STATE=my_func``). The argument is a function or a sequence
   of functions. They will be all called in given order, but after
-  the class method.
+  the method defined inside the class.
 
 The return values are ignored.
 

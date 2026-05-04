@@ -45,5 +45,5 @@ class Timer(FSM):
     def cond_stop(self) -> bool:
         return self._restartable or self._state != 'off'
 
-    def _set_output(self, output) -> bool:
+    def _set_output(self, output: object) -> bool:
         return super()._set_output(output == 'on')
