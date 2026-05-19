@@ -689,7 +689,7 @@ class Circuit:
         # group will detect it and cancel the runner and its supporting tasks.
 
     def get_errors(self) -> list[Exception]:
-        return self._errors
+        return self._errors.copy()
 
     async def watchdog(
             self,

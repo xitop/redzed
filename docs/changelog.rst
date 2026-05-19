@@ -8,13 +8,20 @@ Version numbers are based on the release date (Y.M.D). Only recent changes
 are listed here. Full history can be found on GitHub.
 
 
+26.5.19 (stable release)
+========================
+
+- :meth:`Circuit.get_errors`: the returned list is now a copy
+  and as such may be modified.
+
+
 26.5.5 (release candidate 2)
 ============================
 
-- internal function invoking dynamically chosen methods now supports all kinds
-  of methods, i.e. also those modified with ``@staticmethod`` or ``@staticmethod``.
-  Previously only regular methods were supported. Affected are
-  :ref:`FSM hook methods <Hooks>` and event handlers :meth:`Block._event_ETYPE`.
+- an internal function invoking dynamically chosen methods
+  (namely :ref:`FSM hook methods <Hooks>` and event handlers :meth:`Block._event_ETYPE`)
+  now supports also methods modified with ``@staticmethod`` or ``@classmethod``.
+  Previously only regular methods were supported.
 - names discontinued in 26.4.4 due to renaming were removed
 
 

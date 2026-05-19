@@ -301,13 +301,13 @@ def test_incompatible_hooks(circuit):
             pass
 
     test_fsm = B123('b123')
-    errors = circuit.get_errors()
 
     mini_init(circuit)
-    assert not errors
+    assert not circuit.get_errors()
     with Exc(TypeError, match="incompatible"):
         test_fsm.event('step')
     # check that abort() was called
+    errors = circuit.get_errors()
     assert len(errors) == 1 and isinstance(errors[0], TypeError)
 
 

@@ -157,7 +157,7 @@ Circuit API
 .. method:: Circuit.get_errors() -> list[Exception]
 
    Return a list of exceptions collected by :meth:`Circuit.abort`.
-   Do not modify the list.
+   The returned list is a shallow copy of the original list.
 
 
 3. Persistent storage
