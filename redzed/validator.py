@@ -10,6 +10,7 @@ from __future__ import annotations
 __all__ = ['ValidationError']
 
 from collections.abc import Callable
+import typing as t
 
 import redzed
 
@@ -26,9 +27,9 @@ class _Validate:
     """
 
     def __init__(
-            self, *args,
+            self, *args: t.Any,
             validator: Callable[[object], object]|None = None,
-            **kwargs) -> None:
+            **kwargs: t.Any) -> None:
         self._validator = validator
         super().__init__(*args, **kwargs)
 

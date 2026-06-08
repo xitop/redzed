@@ -394,7 +394,7 @@ class Circuit:
         """
         Initialize a Block excluding async initializers.
 
-        quick_init=False - stop at first async initializer, this make
+        quick_init=False - stop at first async initializer, this makes
                            a second initialization round necessary
         quick_init=True - ignore async initializers and run all sync
                           initializers in a single step
@@ -674,19 +674,16 @@ class Circuit:
             self.shutdown()
 
     def shutdown(self) -> None:
-        """
-        Stop the runner if it was started.
-
-        Prevent the runner from starting if it wasn't started yet.
-        """
+        """Stop the runner."""
         if self.is_shut_down():
             return
         if self._state <= CircuitState.INIT_CIRCUIT:
+            # Prevent the runner from starting if it wasn't started yet.
             self._set_state(CircuitState.CLOSED)
             return
         self._set_state(CircuitState.SHUTDOWN)
-        # The shutdown monitor will be awakened and exits with an error. The task
-        # group will detect it and cancel the runner and its supporting tasks.
+        # The shutdown monitor task will be awakened and exits with an error.
+        # The task group will detect it and will cancel the runner and its supporting tasks.
 
     def get_errors(self) -> list[Exception]:
         return self._errors.copy()

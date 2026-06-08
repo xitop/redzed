@@ -308,16 +308,15 @@ class FSM(redzed.Block):
 
         self._state: str|redzed.UndefType = redzed.UNDEF      # FSM state
         self.sdata: dict[str, object] = {}      # storage for additional internal state data
-        # Restoring state differs in details from setting a new state.
-        # _restore_timer values:
-        #    UNDEF = no state to be restored
-        #    None = restore a not-timed state
-        #    float = restore a timed state and this is its expiration time (UNIX timestamp)
-        self._restore_timer: float|None|redzed.UndefType = redzed.UNDEF
+        # Restoring state from saved data differs slightly from setting a new initial state
+        self._restore_state = False
+        self._restore_timer: float|None = None
+            # if restoring a timed state, the float is its expiration time (UNIX timestamp)
         self._active_timer: asyncio.Handle|None = None
         self._event_handler_lock = False    # detection of recursive calls
         self._edata: Mapping[str, t.Any]|None = None
             # read-only data of the currently processed event
+        self._started = False       # activity control
 
     def fsm_state(self) -> str|redzed.UndefType:
         """Return the FSM state (string) or UNDEF if not initialized."""
@@ -350,22 +349,27 @@ class FSM(redzed.Block):
         cond_STATE and enter_STATE are not executed, because the state
         was already entered in the past. Now it is only restored.
         """
-        if self._state is not redzed.UNDEF:
-            raise RuntimeError(
-                f"{self}: 'rz_restore_state' can be used only for initialization, "
-                + "but this block has been initialized already")
+        assert self._state is redzed.UNDEF
         state, timestamp, sdata = internal_state
         self._check_state(state)
+        is_timed = state in type(self)._ct_timed_states
         if timestamp is not None:
-            if state not in type(self)._ct_timed_states:
-                self.log_debug2(
-                    "Rejecting saved state: a timer was saved in FSM state '%s', "
-                    + "but this state is now not timed", state)
+            # was timed
+            if not is_timed:
+                self.log_warning(
+                    "Rejecting saved state: a timer was saved for a not timed FSM state '%s'",
+                    state)
                 return
             if timestamp <= time.time():
                 self.log_debug2("Rejecting saved timed state, because it has expired")
                 return
-        # state accepted
+        elif is_timed:
+            self.log_warning(
+                "Rejecting saved state: a timer was not saved for a timed FSM state '%s'",
+                state)
+            return
+        # saved state accepted
+        self._restore_state = True
         self._restore_timer = timestamp
         self.sdata = sdata
         self._state = state
@@ -399,25 +403,9 @@ class FSM(redzed.Block):
         self.rz_init(type(self)._ct_default_state)
 
     def rz_start(self) -> None:
-        """
-        Start activities according to the initial state.
-
-        Run 'enter' hooks unless the initial state was restored
-        from the persistent storage, i.e. has been entered already
-        in the past.
-
-        Start the timer if the initial state is timed.
-        """
-        assert self._state is not redzed.UNDEF
-        # restored state
-        if self._restore_timer is not redzed.UNDEF:
-            if self._restore_timer is not None:
-                remaining = max(self._restore_timer - time.time(), 0.0)
-                self._set_timer(remaining, type(self)._ct_timed_states[self._state])
-            self._restore_timer = redzed.UNDEF     # value no longer needed
-            return
-        # new state
-        self._start_now(self._state)
+        """Start activities according to the initial state."""
+        if not self._started:
+            self._send_synthetic_event("Start:")
 
     def rz_stop(self) -> None:
         """Cleanup."""
@@ -527,11 +515,17 @@ class FSM(redzed.Block):
             goto_event = True
             next_state = etype[5:]      # strip "Goto:" prefix
             self._check_state(next_state, dynamic_ok=True)
-        elif etype.startswith("Start:"):
+        elif etype == "Start:":
+            assert not self._started
+            self._started = True
+            if self._restore_state:
+                if self._restore_timer is not None:
+                    remaining = max(self._restore_timer - time.time(), 0.0)
+                    self._set_timer(remaining, type(self)._ct_timed_states[self._state])
+                    self._restore_timer = None
+                return True
             start_event = True
-            next_state = etype[6:]      # strip prefix
-            if next_state != self._state:
-                raise RuntimeError("Event 'Start:STATE' was used incorrectly")
+            next_state = self._state
         else:
             cls = type(self)
             # pylint: disable=protected-access
@@ -593,6 +587,8 @@ class FSM(redzed.Block):
 
         Refer to _fsm_event_handler().
         """
+        if not self._started and etype != "Start:":
+            self._send_synthetic_event("Start:")
         if self._event_handler_lock:
             raise RuntimeError("Recursion error: Got an event while handling an event.")
         self._event_handler_lock = True
@@ -608,7 +604,7 @@ class FSM(redzed.Block):
 
     def _send_synthetic_event(self, etype: str) -> None:
         """
-        Send an synthetic event (implementation detail).
+        Send a synthetic event (implementation detail).
 
         To protect the FSM, the synthetic event names are not
         accepted by the .event() entry point.
@@ -623,10 +619,6 @@ class FSM(redzed.Block):
             # this should be unreachable, because the timer should have been cancelled
             # during shutdown, but just for the case some kind of a race is possible
             return
-        self._send_synthetic_event(f"Goto:{state}")
+        self._send_synthetic_event("Goto:" + state)
         if self.rz_save_flags & redzed.SaveFlags.EVENT:
             self.circuit.save_persistent_state(self)
-
-    def _start_now(self, state: str) -> None:
-        """Start after initialization. To be used by the FSM itself only!"""
-        self._send_synthetic_event(f"Start:{state}")

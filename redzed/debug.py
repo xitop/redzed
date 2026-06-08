@@ -95,6 +95,7 @@ def set_debug_level(level: int) -> None:
 
 class _CircuitTimeFilter(logging.Filter):
     """Filter adding timestamsps in debug level 3."""
+
     def filter(self, record: logging.LogRecord) -> bool:
         if _debug_level.level >= 3 and isinstance(record.msg, str):
             record.msg = f"{circuit.get_circuit().runtime():.03f} {record.msg}"

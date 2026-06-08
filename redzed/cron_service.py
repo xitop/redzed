@@ -58,7 +58,7 @@ class Cron(Block):
 
     RZ_RESERVED = True
 
-    def __init__(self, *args, utc: bool, **kwargs) -> None:
+    def __init__(self, *args: t.Any, utc: bool, **kwargs: t.Any) -> None:
         super().__init__(*args, **kwargs)
         self._utc = bool(utc)
         self._alarms: dict[dt.time, set[Block]] = {tod: set() for tod in _SET24H}

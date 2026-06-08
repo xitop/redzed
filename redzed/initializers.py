@@ -106,6 +106,7 @@ class SaveFlags(enum.Flag):
     """
     When to save block's internal state to the persistent storage.
     """
+
     ENABLED = enum.auto()   # persistent state is enabled, save at exit
     # additional options, they may be set only if ENABLED,
     INTERVAL = enum.auto()  # save periodically
@@ -180,9 +181,7 @@ class PersistentState(SyncInitializer):
 
 
 class AsyncInitializer:
-    """
-    Asynchronous initializer.
-    """
+    """Asynchronous initializer."""
 
     def __init__(self, timeout: float|str):
         self._timeout = time_period(timeout, passthrough=None)

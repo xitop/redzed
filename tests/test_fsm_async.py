@@ -426,3 +426,32 @@ async def test_hook_types(circuit):
             assert log == ['on', 8]
 
     await runtest(tester())
+
+
+async def test_restore_state(circuit):
+    """Test for an issue found and fixed in June 2026."""
+    storage = {}
+
+    class Mono(redzed.FSM):
+        STATES = ['off', ('on', 1, 'off')]
+        EVENTS = [('stop', ..., 'off')]
+
+    storage = {}
+    # circuit 1
+    circuit.set_persistent_storage(storage)
+    mono = Mono('mono', initial=[redzed.PersistentState(), "on"])
+    await runtest(sleep=0)
+    assert mono.fsm_state() == "on"
+
+    # circuit 2
+    redzed.reset_circuit()
+    circuit = redzed.get_circuit()
+    circuit.set_persistent_storage(storage)
+    mono = Mono('mono', initial=[redzed.PersistentState()])
+    # the saved state ('on') is a timed state; the timer is prepared, but not started yet
+
+    # change the state to a not timed state ('off') before start
+    dummy = redzed.Memory('dummy', initial=0)
+    redzed.Trigger(lambda dummy: mono.event('stop'))
+    # the issue was that the timer was not cleared on state change -> KeyError on start
+    await runtest(sleep=0)

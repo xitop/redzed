@@ -8,6 +8,12 @@ Version numbers are based on the release date (Y.M.D). Only recent changes
 are listed here. Full history can be found on GitHub.
 
 
+26.6.8
+======
+
+- :class:`FSM`: fix an issue related to initialization from a saved timed state.
+
+
 26.5.19 (stable release)
 ========================
 

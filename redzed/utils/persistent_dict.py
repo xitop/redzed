@@ -65,7 +65,7 @@ class PersistentDict(collections.UserDict[str, object]):
 
         If an error occurs during the loading, start with an empty dict.
         """
-        # pylint: disable=import-outside-toplevel, redefined-outer-name
+        # pylint: disable=import-outside-toplevel
         global json, pickle
         super().__init__()
         self._filepath = pathlib.Path(datafile)
@@ -167,7 +167,6 @@ class PersistentDict(collections.UserDict[str, object]):
                 **self._tmp_file_settings)  # type: ignore[call-overload]
             step = 2
             tmp_file: io.IOBase
-            # pylint: disable=undefined-variable
             if self._format == 'json':
                 with open(fd, "w", encoding='utf-8') as tmp_file:
                     json.dump(self.data, tmp_file, **SETTINGS_PRETTY)

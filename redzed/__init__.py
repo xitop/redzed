@@ -15,7 +15,7 @@ Docs: https://redzed.readthedocs.io/en/latest/
 Home: https://github.com/xitop/redzed/
 """
 
-__version_info__ = (26, 5, 19)
+__version_info__ = (26, 6, 8)
 __version__ = '.'.join(str(n) for n in __version_info__)
 
 from . import circuit, block, debug, defs, formula_trigger, initializers, validator

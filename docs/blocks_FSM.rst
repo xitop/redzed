@@ -118,7 +118,8 @@ Dynamically selected states
 A dynamically selected state ("dynamic state" for short) is a pseudo-state that
 acts as a placeholder for a computed next state. A dynamic state is identified
 by its name (string) just like any other state, but it is not a valid FSM state.
-It cannot become a current state and cannot have enter or exit actions.
+It cannot become a current state, cannot have enter or exit actions and cannot
+be used as an initial state.
 
 Every time a transition to some dynamic state ``"DSTATE"`` should take place,
 a corresponding :ref:`method <Dynamic state>` is called to compute the real
@@ -539,10 +540,13 @@ from the :class:`FSM` class.
     the state persistence which can be enabled by using
     :class:`PersistentState` as a :ref:`block initializer <Initializers>`.
 
-    The initialization value is usually a single string - the initial state.
+    The initialization value (possibly wrapped by :class:`InitValue`)
+    is usually a single string - the initial state.
     It can be also a :abbr:`sequence (list or tuple)` containing two values:
     the initial state (type: `str`) and the initial :attr:`FSM.sdata`
-    contents (type: `dict[str, object]`).
+    contents (type: `dict[str, object]`). Note that a
+    :ref:`dynamic state  <Dynamically selected states>` cannot be used
+    as the initial state.
 
 
 FSM Initialization rules
